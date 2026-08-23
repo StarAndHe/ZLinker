@@ -1,16 +1,102 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../state/device_store.dart';
 import 'theme.dart';
+import 'ui_settings.dart';
+
+/// DOM contract for the injected session deep-link, verified against the
+/// official ZCode web remote (2026-08). Keep in one place so a web client
+/// update only touches these selectors:
+/// - task list item: `li[data-testid]` whose testid contains the session
+///   id, or any `[data-task-item-key]` containing it;
+/// - first-screen task picker: clickable `button` whose text contains the
+///   task title (a "command palette" style picker auto-opens);
+/// - current task marker: `data-mobile-active-task="true"`;
+/// - takeover screen ("已被其他设备接管"): a short-text button matching
+///   下一步/确认/进入 (or English equivalents).
+const _kDeepLinkTimeout = Duration(seconds: 10);
+const _kDeepLinkPollInterval = Duration(milliseconds: 700);
+
+/// Builds the injected deep-link script. [sessionId] and [title] are
+/// embedded via [jsonEncode] so quotes/newlines cannot break out of the
+/// JS string literals.
+String buildDeepLinkJs(String sessionId, String? title) {
+  final sid = jsonEncode(sessionId);
+  final name = jsonEncode(title ?? '');
+  return '''
+(function () {
+  var SID = $sid;
+  var TITLE = $name;
+  function txt(el) {
+    return ((el && (el.innerText || el.textContent)) || '').trim();
+  }
+  // Takeover screen ("已被其他设备接管"): click 下一步/确认/进入.
+  var bodyTxt = txt(document.body).slice(0, 4000);
+  if (/接管/.test(bodyTxt) || /taken over by another/i.test(bodyTxt)) {
+    var btns = document.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      var t = txt(btns[i]);
+      if (t && t.length <= 8 &&
+          /^(下一步|确认|进入|Next|Confirm|Enter|Continue)\$/.test(t)) {
+        btns[i].click();
+        return 'takeover';
+      }
+    }
+  }
+  // Already viewing the target task.
+  var active = document.querySelector('[data-mobile-active-task="true"]');
+  if (active) {
+    var atid = active.getAttribute('data-testid') || '';
+    var akey = active.getAttribute('data-task-item-key') || '';
+    if (atid.indexOf(SID) >= 0 || akey.indexOf(SID) >= 0) return 'already';
+  }
+  // Main list item whose testid / task-item-key contains the session id.
+  var nodes = document.querySelectorAll('li[data-testid], [data-task-item-key]');
+  for (var j = 0; j < nodes.length; j++) {
+    var n = nodes[j];
+    var tid = n.getAttribute('data-testid') || '';
+    var key = n.getAttribute('data-task-item-key') || '';
+    if (tid.indexOf(SID) >= 0 || key.indexOf(SID) >= 0) {
+      (n.querySelector('button') || n).click();
+      return 'navigated';
+    }
+  }
+  // First-screen task picker: visible button whose text matches the title.
+  if (TITLE.length >= 4) {
+    var btns2 = document.querySelectorAll('button');
+    for (var k = 0; k < btns2.length; k++) {
+      var bt = txt(btns2[k]);
+      if (bt && bt.indexOf(TITLE) >= 0 && btns2[k].offsetParent !== null) {
+        btns2[k].click();
+        return 'titled';
+      }
+    }
+  }
+  return 'pending';
+})()
+''';
+}
 
 /// Full-screen web remote control page. The official ZCode web app owns the
-/// entire protocol; we only load the device URL. keepAlive keeps the session
-/// warm so reopening the same device is instant.
+/// entire conversation protocol; we only load the device URL — plus an
+/// injected deep-link that clicks through to [targetSessionId] once the
+/// page is interactive. keepAlive keeps the session warm so reopening the
+/// same device is instant.
 class RemotePage extends StatefulWidget {
   final Device device;
-  const RemotePage({super.key, required this.device});
+  final String? targetSessionId;
+  final String? targetTitle;
+  const RemotePage({
+    super.key,
+    required this.device,
+    this.targetSessionId,
+    this.targetTitle,
+  });
 
   @override
   State<RemotePage> createState() => _RemotePageState();
@@ -22,9 +108,74 @@ class _RemotePageState extends State<RemotePage> {
   bool _hasError = false;
   String? _errorDescription;
 
+  Timer? _deepLinkTimer;
+  int _deepLinkTicks = 0;
+  bool _deepLinkDone = false;
+
+  @override
+  void dispose() {
+    _deepLinkTimer?.cancel();
+    super.dispose();
+  }
+
+  // ------------------------------------------------------------ deep-link
+
+  void _startDeepLink() {
+    if (widget.targetSessionId == null ||
+        _deepLinkDone ||
+        _deepLinkTimer != null) {
+      return;
+    }
+    _deepLinkTicks = 0;
+    _deepLinkTimer = Timer.periodic(_kDeepLinkPollInterval, (_) {
+      _deepLinkTicks += 1;
+      if (_deepLinkTimer == null) return;
+      if (_kDeepLinkPollInterval * _deepLinkTicks >= _kDeepLinkTimeout) {
+        // Give up silently; the default view is very likely the last-open
+        // conversation anyway (server restores by mobile-view-state).
+        _stopDeepLink();
+        return;
+      }
+      unawaited(_pollDeepLink());
+    });
+  }
+
+  void _stopDeepLink() {
+    _deepLinkTimer?.cancel();
+    _deepLinkTimer = null;
+  }
+
+  Future<void> _pollDeepLink() async {
+    final controller = _controller;
+    if (controller == null || !mounted) return;
+    dynamic res;
+    try {
+      res = await controller.evaluateJavascript(source: _deepLinkJs());
+    } catch (_) {
+      return; // page navigating; retry on the next tick
+    }
+    if (!mounted) return;
+    final status = res is String ? res : '';
+    switch (status) {
+      case 'navigated':
+      case 'already':
+      case 'titled':
+        _deepLinkDone = true;
+        _stopDeepLink();
+      case 'takeover':
+        break; // keep polling — the list appears after taking over
+      default:
+        break;
+    }
+  }
+
+  String _deepLinkJs() =>
+      buildDeepLinkJs(widget.targetSessionId ?? '', widget.targetTitle);
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final linking = _deepLinkTimer != null;
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -35,7 +186,7 @@ class _RemotePageState extends State<RemotePage> {
             Text(widget.device.label,
                 style:
                     const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            Text('zcode.z.ai',
+            Text(linking ? tr(context, 'tasks.deepLinking') : 'zcode.z.ai',
                 style: TextStyle(fontSize: 11, color: ZInk.faint(context))),
           ],
         ),
@@ -53,15 +204,17 @@ class _RemotePageState extends State<RemotePage> {
                 await _controller?.reload();
               }
             },
-            itemBuilder: (c) => const [
-              PopupMenuItem(value: 'browser', child: Text('在浏览器中打开')),
-              PopupMenuItem(value: 'reload', child: Text('重新加载')),
+            itemBuilder: (c) => [
+              PopupMenuItem(
+                  value: 'browser', child: Text(tr(context, 'devices.menu.browser'))),
+              PopupMenuItem(
+                  value: 'reload', child: Text(tr(context, 'remote.reload'))),
             ],
           ),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(2),
-          child: _progress < 1 && !_hasError
+          child: (_progress < 1 && !_hasError) || linking
               ? const LinearProgressIndicator(
                   minHeight: 2,
                   color: ZColors.sky500,
@@ -87,6 +240,10 @@ class _RemotePageState extends State<RemotePage> {
               mediaPlaybackRequiresUserGesture: false,
             ),
             onWebViewCreated: (c) => _controller = c,
+            onLoadStop: (c, url) {
+              setState(() => _progress = 1);
+              _startDeepLink();
+            },
             onProgressChanged: (c, p) =>
                 setState(() => _progress = p / 100),
             onReceivedError: (c, request, error) {
@@ -109,7 +266,7 @@ class _RemotePageState extends State<RemotePage> {
                   Icon(Icons.cloud_off,
                       size: 48, color: ZInk.ghost(context)),
                   const SizedBox(height: 16),
-                  Text('无法连接到桌面设备',
+                  Text(tr(context, 'remote.error.title'),
                       style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -118,7 +275,7 @@ class _RemotePageState extends State<RemotePage> {
                   Text(
                     _errorDescription?.isNotEmpty == true
                         ? _errorDescription!
-                        : '请确认桌面 ZCode 已打开且网络可用',
+                        : tr(context, 'remote.error.hint'),
                     textAlign: TextAlign.center,
                     style:
                         TextStyle(fontSize: 13, color: ZInk.faint(context)),
@@ -132,7 +289,7 @@ class _RemotePageState extends State<RemotePage> {
                       });
                       _controller?.reload();
                     },
-                    child: const Text('重试'),
+                    child: Text(tr(context, 'tasks.retry')),
                   ),
                 ],
               ),

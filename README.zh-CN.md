@@ -2,11 +2,11 @@
 
 # ZRemote
 
-**协议免疫的 ZCode 远程控制。**
+**原生列表与状态,WebView 对话。**
 
-开源的 **ZCode 远程控制启动器** ——
-把桌面设备收进一个列表,点一下,直达官方 Web 远程控制。
-没有 relay 握手,没有配对证明,没有需要追着改的 IPC。
+开源的 **ZCode 远程控制** —— 原生设备列表带实时在线状态与运行任务徽标,
+原生任务列表支持停止 / 暂停 / 恢复,对话则始终在*官方* Web 远程中打开,
+并自动直达你点的那条任务。协议一旦变动,每张卡片都能退回网页版。
 
 [English](README.md) · [为什么做 ZRemote?](#-为什么做-zremote) · [功能](#-功能) · [快速开始](#-快速开始) · [架构](#-架构) · [路线图](#️-路线图)
 
@@ -25,19 +25,29 @@
 
 ## 💡 为什么做 ZRemote?
 
-第三方 ZCode 远程客户端通常要复刻私有协议 —— relay 握手、配对证明、帧传输、会话快照。
-工程上很硬核,也很脆:协议每变一次,客户端就碎一次,直到有人重新移植整套栈。
+过去只有两个坏选项:整套复刻私有协议(relay 握手、配对证明、帧传输、V4 快照),
+协议一变就碎;或者做一个纯启动器,没有状态、没有任务列表、没有任何控制。
 
-**ZRemote 押了相反的方向:一行协议都不实现。** 它是一个启动器 —— 干净的设备列表 + 打开官方 Web 远程页的内嵌浏览器。协议归智谱,升级归智谱,ZRemote 只负责指过去。
+**ZRemote 押的是混合路线。**一套经过真机验证的纯 Dart 协议栈原生驱动
+「看一眼就够了」的部分 —— 设备在线状态、实时任务列表、停止 / 暂停 / 恢复、
+用量、模型供应商 —— 对话则留在官方 Web 远程里,通过注入点击直达你点的那条
+任务。协议变动时:卡片优雅降级为网页模式,App 照常能用。
 
-- 🧬 **协议升级免疫** —— 智谱明天上线 remote v5?扫一次新码,App 一行不用改。
-- 🪶 **约 1000 行 Dart** —— 九个文件,三个是 UI,没有会腐烂的东西。
-- 📋 **把列表做对** —— 扫码 / 粘贴 / 相册识码添加,重命名 / 删除 / 复制 / 备份导入导出。
-- 🌐 **官方体验,永远最新** —— 真正的 Web 远程页跑在全屏 WebView 里,配对状态跨会话保留。
-- 🎨 **像素级官方主题** —— 设计 token 直接从官方 bundle 提取(中性灰 + 天空蓝,深色 `#161616`),看上去就是一家人。
-- 🔐 **凭据只留在手机上** —— 设备 URL 只存本地,没有服务器、没有埋点、没有账号。
+- 🟢 **原生状态,零成本** —— 每张卡片一个在线状态点 + 运行中任务徽标,
+  数据来自实时 sessions-index 订阅。
+- 📋 **真正的任务列表** —— 标题、运行状态、最新回复预览、相对时间;
+  停止 / 暂停 / 恢复不用进对话。
+- 🎯 **点击直达对话** —— 点任务 → 挂起原生连接 → 打开官方 Web 远程 →
+  注入点击落到那个会话(含「已被接管」屏处理)。URL 没有会话参数,
+  直达靠注入实现。
+- 🧬 **协议变动砸不坏** —— 握手失败时卡片提示「请用网页版」;WebView 路径
+  完全不依赖协议。设备卡还有「网页版打开」逃生口,设置里有原生列表总开关。
+- 🌐 **官方对话体验,永远最新** —— 真正的 Web 远程页跑在全屏 WebView 里,
+  配对状态跨会话保留。
+- 🔐 **凭据只留在手机上** —— 设备 URL 只存本地(Android 特意关闭云备份);
+  没有服务器、没有埋点、没有账号。
 
-> *永远不会坏的远程客户端。*
+> *该原生的原生,该官方的官方,坏了还有网页。*
 
 觉得靠谱?给个 **Star ⭐** 持续关注。
 
@@ -47,12 +57,19 @@
 
 | | |
 |---|---|
-| 📋 **设备列表** | 卡片展示设备名 / 主机 / 上次使用时间;重命名、删除、复制链接、浏览器打开;设备备份 JSON 导出 / 导入 |
+| 📋 **设备列表** | 卡片展示设备名 / 主机 / 上次使用时间 / 在线状态点 / 运行任务徽标;重命名、删除、复制链接、浏览器打开;设备备份 JSON 导出 / 导入 |
 | ➕ **扫码 / 粘贴 / 截图添加** | 相机扫码(`mobile_scanner`)、纯 Dart 相册识码(`zxing2`)、粘贴链接;自动去重;无法解析的链接照样保存,绝不丢 |
+| 📊 **原生任务列表** | 实时 sessions-index:标题、阶段、最新回复预览、相对时间;停止 / 暂停 / 恢复;多工作区切换 |
+| 🎯 **自动直达** | 点任务 → WebView 打开官方远程并注入点击,落到那个会话(处理「已被其他设备接管」屏) |
+| 📈 **用量与模型供应商** | 按设备查权益快照(剩余额度、配额限制、订阅)与管理模型供应商(工作区 bridge 上的 RPC) |
+| ⏰ **定时消息** | 最小自动化:到点给指定设备发一条消息(App 内定时器 + `createSession`) |
+| ⚙️ **设置与关于** | 主题(深 / 浅 / 跟随系统)、语言(中文 / English)、原生列表开关、按渠道分流的检查更新、开源许可、隐私政策、本地使用统计 |
 | 🌐 **应用内远程页** | 全屏 `flutter_inappwebview`,加载进度条、刷新、"在浏览器中打开"逃生口;DOM Storage 保留官方页配对状态 |
-| 🎨 **官方设计 token** | 从官方 bundle 提取的中性灰阶 + 天空蓝;深色 `#161616` 默认,浅色、跟随系统 |
-| 🌗 **主题切换** | 深色 / 浅色 / 跟随系统,持久化;默认深色,和官方页一致 |
-| 📱 **Android + iOS** | 一套代码双平台,相机 / 相册权限已配好 |
+| 🎨 **官方设计 token** | 从官方 bundle 提取的中性灰阶 + 天空蓝;深色 `#161616` 默认 |
+| 📱 **Android + iOS,商店就绪** | 渠道构建(`github` / `play` / `appstore`)、隐私清单、双语权限文案;任何构建都不含应用内 APK 下载 / 安装代码 |
+
+一台设备同时只允许一个终端连接:打开 WebView 前挂起原生连接,关闭约 1 秒后
+自动重连。多台设备互不影响,各自一条连接。
 
 ---
 
@@ -78,7 +95,7 @@ https://zcode.z.ai/remote/v4?sid=...&hash=...&t=...&mid=...&name=...
 
 ### 方式 B · 源码构建
 
-前置条件:[Flutter](https://docs.flutter.dev/get-started/install) 3.44+(Dart 3.12+)。构建 Android 需要 JDK 17 + Android SDK;构建 iOS 需要 Mac + Xcode。
+前置条件:[Flutter](https://docs.flutter.dev/get-started/install) 3.44+(Dart 3.12+)。构建 Android 需要 JDK + Android SDK;构建 iOS 需要 Mac + Xcode。
 
 ```bash
 git clone https://github.com/opensymph/ZRemote.git
@@ -86,63 +103,100 @@ cd ZRemote
 flutter pub get
 
 flutter run                       # 连接真机调试
-flutter build apk                 # → build/app/outputs/flutter-apk/app-release.apk
-flutter build ipa                 # 在 Mac 上,配置好签名后
+
+# 分发渠道(更新行为不同):
+flutter build apk --release                                            # github(默认)
+flutter build apk --release --dart-define=APP_CHANNEL=play             # Play 商店
+flutter build ipa --dart-define=APP_CHANNEL=appstore                   # 在 Mac 上
 ```
 
-应用内:**添加设备** → 扫码或粘贴 → 点击卡片 → 进入远程控制。
+「检查更新」按渠道分流:**github** 查 GitHub Releases 并跳浏览器下载;
+**play** / **appstore** 直接打开商店页。任何构建都不含应用内 APK 下载 / 安装代码。
+
+应用内:**添加设备** → 扫码或粘贴 → 点击卡片 → 原生任务列表 → 点任务 → 进入对话。
+
+```bash
+flutter analyze   # 零告警
+flutter test      # 全部通过(含协议单测)
+```
 
 ---
 
 ## 🧱 架构
 
 ```
-┌─────────────────────────────────────────────────┐
-│ UI (lib/ui)                                     │
-│   devices_page · remote_page · qr_scan_page     │
-├─────────────────────────────────────────────────┤
-│ State (lib/state)                               │
-│   device_store — SharedPreferences JSON         │
-├─────────────────────────────────────────────────┤
-│ Core (lib/core)                                 │
-│   connection_params — 仅从 URL 提取设备名标签    │
-└───────────────┬─────────────────────────────────┘
-                │ 打开 URL
-┌───────────────▼─────────────────────────────────┐
-│ ZCode 官方 Web 远程(WebView 内)                 │
-│   relay · 配对 · IPC · V4                        │
-│   —— 归智谱所有、随官方更新,与我们无关           │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ UI (lib/ui)                                              │
+│   devices_page · task_list_page · remote_page            │
+│   settings / about / usage · device_usage ·              │
+│   model_providers · scheduled · qr_scan                  │
+├──────────────────────────────────────────────────────────┤
+│ State (lib/state)                                        │
+│   device_store — 设备 + 持久化 + 备份                     │
+│   device_session — 每设备连接状态机                        │
+│                    (连接 / 挂起 / 恢复 / 重试)             │
+│   scheduled_store — 定时消息 + 调度器                      │
+├──────────────────────────────────────────────────────────┤
+│ Protocol (lib/protocol — 移植自参考实现,经真机验证)        │
+│   relay_client · remote_client · conversation (V4)       │
+│   channel_client · rpc_transport · ipc_codec · proof     │
+├──────────────────────────────────────────────────────────┤
+│ 对话 (remote_page)                                       │
+│   WebView 内的 ZCode 官方 Web 远程                         │
+│   + 注入点击直达所点的会话                                 │
+│   —— 归智谱所有、随官方更新,与我们无关                     │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ```text
 lib/
-├── main.dart                  # 入口:主题 + 主页
-├── core/
-│   ├── connection_params.dart # 远程 URL 解析(仅取标签,不碰协议)
-│   └── id.dart                # UUID
+├── main.dart                  # 入口:stores + 会话 hub + 调度器
+├── protocol/                  # 纯 Dart 的 ZCode 远程协议栈
+│   ├── relay_client.dart      # wss relay:认证、配对、心跳、重连
+│   ├── remote_client.dart     # bootstrap · bridge · 恢复 · view-state
+│   ├── conversation.dart      # Conversation V4:sessions-index、命令
+│   ├── channel_client.dart    # IPC channel RPC
+│   ├── rpc_transport.dart     # rpc-frame 分片 + crc32
+│   ├── ipc_codec.dart         # 值编解码 + 帧解析
+│   ├── connection_params.dart # 远程 URL 解析 + relay ws 推导
+│   ├── proof.dart · crc32.dart · device_info.dart · id.dart
 ├── state/
-│   └── device_store.dart      # 设备模型 + 持久化 + 导入导出
+│   ├── device_store.dart      # 设备模型 + 持久化 + 导入导出
+│   ├── device_session.dart    # DeviceSession + hub(每设备一个终端)
+│   └── scheduled_store.dart   # 定时消息 + MessageScheduler
 ├── ui/
 │   ├── theme.dart             # 官方设计 token + 深浅主题
-│   ├── devices_page.dart      # 设备列表
-│   ├── qr_scan_page.dart      # 相机 + 相册扫码
-│   └── remote_page.dart       # 全屏 WebView 远程页
-└── tool/
-    └── icon_gen.dart          # 重新生成应用图标
+│   ├── ui_settings.dart       # 语言 + 原生列表开关 + tr() 词条
+│   ├── devices_page.dart      # 设备列表(状态点 + 徽标)
+│   ├── task_list_page.dart    # 原生任务列表(sessions-index)
+│   ├── remote_page.dart       # WebView 远程 + 直达注入
+│   ├── settings_page.dart · about_page.dart · usage_stats_page.dart
+│   ├── device_usage_page.dart · model_providers_page.dart
+│   ├── scheduled_page.dart · qr_scan_page.dart
+└── update/                    # 应用渠道 + GitHub release 检查
 ```
+
+`lib/` 约 7,700 行 Dart,测试约 1,800 行(协议编解码、状态机、delta 应用、
+存储、i18n、直达 JS 构造)。
 
 ---
 
 ## 🗺️ 路线图
 
+- [x] 英文本地化(应用内中文 / English 切换)
+- [x] 原生设备状态 + 运行任务徽标
+- [x] 原生任务列表(停止 / 暂停 / 恢复)
+- [x] 点击直达对话(WebView 注入)
+- [x] 定时消息(最小自动化)
+- [x] 商店就绪构建(渠道分流、隐私清单)
 - [ ] README 截图 + 演示 GIF
 - [ ] 剪贴板检测 —— 复制远程链接后自动提示添加
 - [ ] 拖拽排序 + 置顶设备
 - [ ] 每设备 `theme=dark|light` URL 参数
 - [ ] 桌面快捷打开小组件(Android)
 - [ ] Release 工作流产出 iOS 产物
-- [ ] 英文本地化
+- [ ] Play 商店 / App Store 上架
+- [ ] 定时消息 v2 —— 周期规则、后台投递
 
 ---
 
@@ -155,14 +209,14 @@ flutter analyze   # 零告警
 flutter test      # 全部通过
 ```
 
-小而聚焦的 PR 最快被合并。UI 改动请保持[官方设计 token](lib/ui/theme.dart) —— 这是本项目的立身之本。
+小而聚焦的 PR 最快被合并。UI 改动请保持[官方设计 token](lib/ui/theme.dart) —— 这是本项目的立身之本。协议改动请保持与移植来源的参考实现一致。
 
 ---
 
 ## 🙏 致谢
 
-- **ZCode 与官方 Web 远程** —— 真正的远程体验与全部协议能力都在那里。
-- Flutter 生态:`flutter_inappwebview`、`mobile_scanner`、`zxing2`、`shared_preferences`、`url_launcher`。
+- **ZCode 与官方 Web 远程** —— 对话体验与协议能力都在那里;对话永远跑在官方页。
+- Flutter 生态:`flutter_inappwebview`、`mobile_scanner`、`zxing2`、`shared_preferences`、`url_launcher`、`web_socket_channel`。
 
 > ⚠️ ZRemote 是独立的社区工具,与智谱 AI 无任何隶属、背书或关联。请仅用于你自己的设备,并遵守 ZCode 服务条款。
 

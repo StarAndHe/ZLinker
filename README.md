@@ -2,11 +2,13 @@
 
 # ZRemote
 
-**The protocol-proof ZCode remote.**
+**Native list & status, WebView conversations.**
 
-The open-source remote launcher for **ZCode** —
-manage your desktop devices in one list, tap one, and you're in the official
-web remote. No relay handshake, no pairing proofs, no IPC to track.
+The open-source remote for **ZCode** — a native device list with live
+online status and running-task badges, a native task list with
+stop / pause / resume, and conversations in the *official* web remote,
+deep-linked to the exact task you tapped. If the protocol ever shifts,
+every card falls back to the web version.
 
 [简体中文](README.zh-CN.md) · [Why ZRemote?](#-why-zremote) · [Features](#-features) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Roadmap](#️-roadmap)
 
@@ -25,31 +27,38 @@ web remote. No relay handshake, no pairing proofs, no IPC to track.
 
 ## 💡 Why ZRemote?
 
-Third-party ZCode remote clients usually re-implement the private protocol —
-relay handshakes, pairing proofs, frame transport, session snapshots.
-Impressive engineering, and fragile: every time the protocol changes, the
-client breaks until someone re-ports the whole stack.
+Two bad options used to exist: re-implement the whole private protocol
+(relay handshakes, pairing proofs, frame transport, V4 snapshots) and
+break on every protocol change — or ship a dumb launcher with no status,
+no task list, no controls.
 
-**ZRemote takes the opposite bet: implement none of it.** It is a launcher —
-a clean device list plus an embedded browser that opens the *official* web
-remote page. Zhipu owns the protocol, updates it, and ships it; ZRemote just
-points at it.
+**ZRemote takes the hybrid bet.** A battle-tested pure-Dart protocol
+stack powers the cheap, glanceable stuff natively — device status,
+the live task list, stop/pause/resume, usage, model providers — while
+conversations stay in the official web remote, opened by an injected
+deep-link straight to the task you tapped. And when the protocol moves:
+cards degrade gracefully to web mode, and the app keeps working.
 
-- 🧬 **Protocol-upgrade immune** — Zhipu ships remote v5 tomorrow? Scan the
-  new QR code. The app is unchanged.
-- 🪶 **~1,000 lines of Dart** — nine files, three of them UI. Nothing to
-  bit-rot.
-- 📋 **A list done right** — scan / paste / gallery-decode to add,
-  rename / delete / copy / backup; sorted by what matters: your devices.
-- 🌐 **The official experience, always current** — the real web remote in a
-  fullscreen WebView, pairing state persisted between sessions.
-- 🎨 **Pixel-official theme** — design tokens extracted from the actual web
-  bundle (neutral grays + sky accent, `#161616` dark). It looks like it
-  belongs.
-- 🔐 **Credentials stay on your phone** — device URLs live in local storage
-  only; no servers, no telemetry, no accounts.
+- 🟢 **Native status, zero effort** — every card shows an online dot and
+  a running-task badge from the live sessions-index subscription.
+- 📋 **A real task list** — titles, running state, latest assistant
+  preview, relative times; stop / pause / resume without opening a chat.
+- 🎯 **Tap-to-conversation** — tapping a task suspends the native link,
+  opens the official web remote, and injects clicks to land on that
+  exact session (takeover screen included). No URL session parameter
+  exists, so deep-linking is done by injection.
+- 🧬 **Protocol shifts can't brick it** — handshake failure flips a card
+  into "use the web version" mode; the WebView path has no protocol
+  dependencies at all. There's also a per-device "open web version"
+  escape hatch and a global native-list switch.
+- 🌐 **The official conversation experience, always current** — the real
+  web remote in a fullscreen WebView, pairing state persisted between
+  sessions.
+- 🔐 **Credentials stay on your phone** — device URLs live in local
+  storage only (Android backups disabled on purpose); no servers, no
+  telemetry, no accounts.
 
-> *The remote client that never breaks.*
+> *Native where it pays, official where it matters, web when it breaks.*
 
 Sounds good? **Star ⭐ the repo** to follow along.
 
@@ -59,12 +68,21 @@ Sounds good? **Star ⭐ the repo** to follow along.
 
 | | |
 |---|---|
-| 📋 **Device list** | Cards with device name, host, and last-used time; rename, delete, copy link, open in browser; export / import your device backup as JSON |
+| 📋 **Device list** | Cards with device name, host, last-used time, online status dot and running-task badge; rename, delete, copy link, open in browser; export / import your device backup as JSON |
 | ➕ **Add by scan, paste, or screenshot** | Camera QR scan (`mobile_scanner`), pure-Dart gallery QR decode (`zxing2`), or paste a URL — with de-duplication; unparseable links are still saved, never lost |
-| 🌐 **In-app web remote** | Fullscreen `flutter_inappwebview` with a loading progress bar, reload, and an "open in browser" escape hatch; DOM storage keeps the official page's pairing across opens |
-| 🎨 **Official design tokens** | Neutral gray scale + sky accent extracted from the real bundle; dark `#161616` default, light, and follow-system themes |
-| 🌗 **Theme control** | Dark / light / system, persisted — dark by default, just like the official page |
-| 📱 **Android + iOS** | One codebase, both platforms, permissions pre-wired (camera, photo library) |
+| 📊 **Native task list** | Live sessions-index: title, phase, latest assistant preview, relative time; stop / pause / resume; multi-workspace switcher |
+| 🎯 **Auto deep-link** | Tap a task → the WebView opens the official remote and injects clicks to reach that exact session (handles the "taken over by another device" screen) |
+| 📈 **Usage & model providers** | Per-device entitlement snapshot (remaining quota, limits, subscription) and model-provider management over the workspace bridge |
+| ⏰ **Scheduled messages** | Minimal automation: send a message to a device at a chosen time (app-side timer + `createSession`) |
+| ⚙️ **Settings & about** | Theme (dark / light / system), language (中文 / English), native-list switch, channel-aware update check, licenses, privacy policy, local usage statistics |
+| 🌐 **In-app web remote** | Fullscreen `flutter_inappwebview` with progress bar, reload, "open in browser" escape hatch; DOM storage keeps the official page's pairing across opens |
+| 🎨 **Official design tokens** | Neutral gray scale + sky accent extracted from the real bundle; dark `#161616` default |
+| 📱 **Android + iOS, store-ready** | Channel builds (`github` / `play` / `appstore`), privacy manifest, bilingual permission strings; no self-install APK code path anywhere |
+
+One terminal per device: the server allows a single connection per
+device, so the app suspends its native link before opening the WebView
+and reconnects about a second after it closes. Multiple devices run in
+parallel, each with its own connection.
 
 ---
 
@@ -96,7 +114,7 @@ phone, and add your first device by scanning the QR code.
 ### Option B · Build from source
 
 Prerequisites: [Flutter](https://docs.flutter.dev/get-started/install) 3.44+
-(Dart 3.12+). For Android builds: JDK 17 + Android SDK. For iOS: a Mac with
+(Dart 3.12+). For Android builds: JDK + Android SDK. For iOS: a Mac with
 Xcode.
 
 ```bash
@@ -105,63 +123,103 @@ cd ZRemote
 flutter pub get
 
 flutter run                       # debug on a connected device
-flutter build apk                 # → build/app/outputs/flutter-apk/app-release.apk
-flutter build ipa                 # on a Mac, after configuring signing
+
+# Distribution channels (update behavior differs):
+flutter build apk --release                                            # github (default)
+flutter build apk --release --dart-define=APP_CHANNEL=play             # Play Store
+flutter build ipa --dart-define=APP_CHANNEL=appstore                   # on a Mac
 ```
 
-Inside the app: **Add device** → scan or paste → tap the card → you're in.
+Channel behavior for "check for updates": **github** checks GitHub
+releases and opens the download in the browser; **play** / **appstore**
+open the store listing. No build contains in-app APK download/install
+code.
+
+Inside the app: **Add device** → scan or paste → tap a card → the native
+task list → tap a task → you're in the conversation.
+
+```bash
+flutter analyze   # zero warnings
+flutter test      # all green (protocol unit tests included)
+```
 
 ---
 
 ## 🧱 Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│ UI (lib/ui)                                     │
-│   devices_page · remote_page · qr_scan_page     │
-├─────────────────────────────────────────────────┤
-│ State (lib/state)                               │
-│   device_store — SharedPreferences JSON         │
-├─────────────────────────────────────────────────┤
-│ Core (lib/core)                                 │
-│   connection_params — URL → device label only   │
-└───────────────┬─────────────────────────────────┘
-                │ opens the URL
-┌───────────────▼─────────────────────────────────┐
-│ Official ZCode Web Remote (in a WebView)        │
-│   relay · pairing · IPC · V4                    │
-│   — owned and updated by Zhipu, not by us       │
-└─────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ UI (lib/ui)                                              │
+│   devices_page · task_list_page · remote_page            │
+│   settings / about / usage · device_usage ·              │
+│   model_providers · scheduled · qr_scan                  │
+├──────────────────────────────────────────────────────────┤
+│ State (lib/state)                                        │
+│   device_store — devices + persistence + backups         │
+│   device_session — per-device connection state machine   │
+│                    (connect / suspend / resume, retries) │
+│   scheduled_store — scheduled messages + scheduler       │
+├──────────────────────────────────────────────────────────┤
+│ Protocol (lib/protocol — ported, battle-tested)          │
+│   relay_client · remote_client · conversation (V4)       │
+│   channel_client · rpc_transport · ipc_codec · proof     │
+├──────────────────────────────────────────────────────────┤
+│ Conversations (remote_page)                              │
+│   official ZCode Web Remote in a WebView                 │
+│   + injected deep-link to the tapped session             │
+│   — owned and updated by Zhipu, not by us                │
+└──────────────────────────────────────────────────────────┘
 ```
 
 ```text
 lib/
-├── main.dart                  # entry: theme + home
-├── core/
-│   ├── connection_params.dart # remote URL parsing (label only, no protocol)
-│   └── id.dart                # UUID
+├── main.dart                  # entry: stores + session hub + scheduler
+├── protocol/                  # pure-Dart ZCode remote protocol stack
+│   ├── relay_client.dart      # wss relay: auth, pairing, heartbeat, reconnect
+│   ├── remote_client.dart     # bootstrap · bridges · recovery · view-state
+│   ├── conversation.dart      # Conversation V4: sessions-index, commands
+│   ├── channel_client.dart    # IPC channel RPC
+│   ├── rpc_transport.dart     # rpc-frame fragmentation + crc32
+│   ├── ipc_codec.dart         # value codec + frame parser
+│   ├── connection_params.dart # remote URL parsing + relay ws derivation
+│   ├── proof.dart · crc32.dart · device_info.dart · id.dart
 ├── state/
-│   └── device_store.dart      # device model + persistence + import/export
+│   ├── device_store.dart      # device model + persistence + import/export
+│   ├── device_session.dart    # DeviceSession + hub (one terminal per device)
+│   └── scheduled_store.dart   # scheduled messages + MessageScheduler
 ├── ui/
 │   ├── theme.dart             # official design tokens + dark/light themes
-│   ├── devices_page.dart      # the device list
-│   ├── qr_scan_page.dart      # camera + gallery QR scanning
-│   └── remote_page.dart       # fullscreen WebView remote
-└── tool/
-    └── icon_gen.dart          # regenerates the launcher icon set
+│   ├── ui_settings.dart       # locale + native-list switch + tr() tables
+│   ├── devices_page.dart      # device list with status dots & badges
+│   ├── task_list_page.dart    # native task list (sessions-index)
+│   ├── remote_page.dart       # WebView remote + deep-link injection
+│   ├── settings_page.dart · about_page.dart · usage_stats_page.dart
+│   ├── device_usage_page.dart · model_providers_page.dart
+│   ├── scheduled_page.dart · qr_scan_page.dart
+└── update/                    # app channel + github release checker
 ```
+
+~7,700 lines of Dart in `lib/`, ~1,800 lines of tests (protocol codecs,
+state machines, delta application, stores, i18n, deep-link JS builder).
 
 ---
 
 ## 🗺️ Roadmap
 
+- [x] English localization (in-app 中文 / English switch)
+- [x] Native device status + running-task badges
+- [x] Native task list with stop / pause / resume
+- [x] Tap-to-conversation deep-link (WebView injection)
+- [x] Scheduled messages (minimal automation)
+- [x] Store-ready builds (channel split, privacy manifest)
 - [ ] Screenshots + demo GIF in the README
 - [ ] Clipboard detection — offer to add when a remote URL is copied
 - [ ] Drag-to-reorder and pin devices
 - [ ] Per-device `theme=dark|light` URL parameter
 - [ ] Home-screen quick-open widget (Android)
 - [ ] iOS artifacts in the release workflow
-- [ ] English localization
+- [ ] Play Store / App Store release
+- [ ] Scheduled messages v2 — recurring rules, background delivery
 
 ---
 
@@ -175,16 +233,18 @@ flutter test      # all green
 ```
 
 Small, focused PRs land fastest. For UI work, keep the
-[official design tokens](lib/ui/theme.dart) — that's the point.
+[official design tokens](lib/ui/theme.dart) — that's the point. Protocol
+changes should stay faithful to the reference implementation this stack
+was ported from.
 
 ---
 
 ## 🙏 Acknowledgements
 
-- **ZCode & the official web remote** — the actual remote experience; all
-  protocol smarts live there.
-- The Flutter ecosystem: `flutter_inappwebview`, `mobile_scanner`, `zxing2`,
-  `shared_preferences`, `url_launcher`.
+- **ZCode & the official web remote** — the conversation experience and
+  the protocol it speaks; conversations always run there.
+- The Flutter ecosystem: `flutter_inappwebview`, `mobile_scanner`,
+  `zxing2`, `shared_preferences`, `url_launcher`, `web_socket_channel`.
 
 > ⚠️ ZRemote is an independent, community tool. It is not affiliated with,
 > endorsed by, or connected to Zhipu AI. Use it only with devices you own and

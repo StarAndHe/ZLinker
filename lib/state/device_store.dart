@@ -3,8 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../core/connection_params.dart';
-import '../core/id.dart';
+import '../protocol/connection_params.dart';
+import '../protocol/id.dart';
 
 class Device {
   final String id;
@@ -13,12 +13,17 @@ class Device {
   final int addedAt;
   int? lastUsedAt;
 
+  /// Times the device was opened (WebView or native actions). Purely local
+  /// usage stats; absent in old backups and defaults to 0.
+  int useCount;
+
   Device({
     required this.id,
     required this.label,
     required this.url,
     required this.addedAt,
     this.lastUsedAt,
+    this.useCount = 0,
   });
 
   factory Device.fromUrl(String url, {String? label}) {
@@ -43,6 +48,7 @@ class Device {
         'url': url,
         'addedAt': addedAt,
         if (lastUsedAt != null) 'lastUsedAt': lastUsedAt,
+        if (useCount > 0) 'useCount': useCount,
       };
 
   factory Device.fromJson(Map<String, dynamic> j) => Device(
@@ -51,6 +57,7 @@ class Device {
         url: j['url'] as String? ?? '',
         addedAt: j['addedAt'] as int? ?? DateTime.now().millisecondsSinceEpoch,
         lastUsedAt: j['lastUsedAt'] as int?,
+        useCount: j['useCount'] as int? ?? 0,
       );
 }
 
@@ -116,9 +123,10 @@ class DeviceStore extends ChangeNotifier {
   }
 
   Future<void> touch(String id) async {
-    final d = _devices.where((e) => e.id == id).firstOrNull;
+    final d = _devices.where((d) => d.id == id).firstOrNull;
     if (d == null) return;
     d.lastUsedAt = DateTime.now().millisecondsSinceEpoch;
+    d.useCount += 1;
     notifyListeners();
     await _save();
   }

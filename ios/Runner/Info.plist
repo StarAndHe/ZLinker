@@ -9,9 +9,9 @@
 	<key>CFBundleDisplayName</key>
 	<string>ZRemote</string>
 	<key>NSCameraUsageDescription</key>
-	<string>需要相机权限以扫码添加桌面设备</string>
+	<string>ZRemote 需要相机权限以扫码添加桌面设备 / ZRemote uses the camera to scan the remote-control QR code.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>需要相册权限以从二维码截图识别设备链接</string>
+	<string>ZRemote 需要相册权限以从二维码截图识别设备链接 / ZRemote uses the photo library to decode a QR screenshot.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>

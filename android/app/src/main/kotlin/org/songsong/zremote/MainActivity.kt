@@ -1,4 +1,4 @@
-package dev.humanailoop.zremote
+package org.songsong.zremote
 
 import io.flutter.embedding.android.FlutterActivity
 

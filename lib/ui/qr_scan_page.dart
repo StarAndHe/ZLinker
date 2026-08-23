@@ -7,6 +7,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:zxing2/qrcode.dart';
 
 import 'theme.dart';
+import 'ui_settings.dart';
 
 /// QR scan page: camera scan (mobile_scanner) + decode from a picked image
 /// (pure-Dart zxing2, works everywhere). Pops with the scanned URL string.
@@ -57,13 +58,17 @@ class _QrScanPageState extends State<QrScanPage> {
         _accept(text);
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('未能从图片中识别二维码')),
+          SnackBar(
+              content: Text(tr(context, 'devices.scan.decodeFailed'))),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('图片识别失败: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content:
+                  Text(trP(context, 'devices.scan.decodeError', ['$e']))),
+        );
       }
     } finally {
       if (mounted) setState(() => _decodingImage = false);
@@ -74,11 +79,11 @@ class _QrScanPageState extends State<QrScanPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('扫码添加设备'),
+        title: Text(tr(context, 'devices.scan.title')),
         actions: [
           IconButton(
             icon: const Icon(Icons.image_outlined),
-            tooltip: '从相册选择二维码图片',
+            tooltip: tr(context, 'devices.scan.fromGallery'),
             onPressed: _decodingImage ? null : _pickImage,
           ),
         ],
@@ -91,7 +96,8 @@ class _QrScanPageState extends State<QrScanPage> {
                     child: Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(
-                        '相机不可用: $_cameraError\n可改用右上角从图片识别',
+                        trP(context, 'devices.scan.cameraError',
+                            [_cameraError!]),
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -112,14 +118,16 @@ class _QrScanPageState extends State<QrScanPage> {
                                   '${error.errorCode}');
                         }
                       });
-                      return const Center(child: Text('相机初始化失败'));
+                      return Center(
+                          child: Text(tr(
+                              context, 'devices.scan.cameraInitFailed')));
                     },
                   ),
           ),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Text(
-              '对准桌面端 ZCode 远程控制二维码，或从相册选择二维码截图',
+              tr(context, 'devices.scan.hint'),
               style: TextStyle(color: ZInk.muted(context), fontSize: 12),
               textAlign: TextAlign.center,
             ),

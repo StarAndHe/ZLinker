@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-08-23
+
+### Added
+
+- Hybrid architecture: a pure-Dart protocol stack (relay, pairing proof,
+  rpc-frame, IPC codec, conversation V4) powers the glanceable layer natively,
+  while conversations stay in the official web remote.
+- Native device list with live online status and running-task badges.
+- Native task list with stop / pause / resume controls.
+- Deep-link from a task card into the web remote, opened at that exact task;
+  graceful fallback to plain web mode when the protocol shifts.
+- Usage stats, device usage, and model providers pages.
+- Scheduled tasks store and page.
+- Settings, UI settings, and About pages.
+- In-app update checker (`package_info_plus` + GitHub Releases).
+- ~100 new tests (protocol, stores, settings, update service, deep-link JS).
+
+### Changed
+
+- Android application id / namespace: `org.songsong.zremote`.
+- README (EN + zh-CN) rewritten around the hybrid positioning.
+
 ## [1.0.1] - 2026-08-23
 
 ### Added

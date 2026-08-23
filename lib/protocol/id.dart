@@ -11,3 +11,5 @@ String generateUuid() {
       '${hex(8)}${hex(9)}-${hex(10)}${hex(11)}'
       '${hex(12)}${hex(13)}${hex(14)}${hex(15)}';
 }
+
+String generateRequestId(String prefix) => '$prefix-${generateUuid()}';

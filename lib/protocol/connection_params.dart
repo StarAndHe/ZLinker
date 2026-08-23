@@ -1,9 +1,9 @@
 /// Parses a ZCode web-remote connection URL, e.g.
 /// https://zcode.z.ai/remote/v4?sid=...&hash=...&t=...&mid=...&name=...&app_version=...
 ///
-/// ZRemote keeps no protocol logic of its own; this parser exists only to
-/// derive a friendly device label (name/host) for the list. If the URL shape
-/// changes, the raw URL is still stored verbatim and stays openable.
+/// Mirrors `zC()` in the web client bundle. The URL also derives the relay
+/// websocket endpoint; if the URL shape changes, the raw URL is still stored
+/// verbatim by the device store and stays openable in the WebView.
 class RemoteConnectionParams {
   final String deviceSid;
   final String passHash;
@@ -52,4 +52,21 @@ class RemoteConnectionParams {
       source: uri,
     );
   }
+
+  /// Relay websocket URL. Mirrors `Jc()` / `pen.connect()` in the web client:
+  /// `ws(s)://<host>/ws` plus `?mid=` when present.
+  Uri get relayWsUri {
+    final scheme = uriSchemeIsSecure ? 'wss' : 'ws';
+    final base = Uri(
+      scheme: scheme,
+      host: source.host,
+      port: source.hasPort ? source.port : null,
+      path: '/ws',
+    );
+    if (deviceMid == null) return base;
+    return base.replace(queryParameters: {'mid': deviceMid});
+  }
+
+  bool get uriSchemeIsSecure =>
+      source.scheme == 'https' || source.scheme == 'wss';
 }
