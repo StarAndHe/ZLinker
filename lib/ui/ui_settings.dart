@@ -354,6 +354,8 @@ const _zh = {
   'tasks.banner.onlineSubtitle': '已连接到当前桌面窗口',
   'tasks.banner.onlineDesc': '本次连接可以查看当前设备上已打开的项目、任务和会话；二维码失效后需要回到桌面端重新连接。',
   'tasks.paneHint': '选择左侧任务查看会话',
+  'tasks.commandSearch': '搜索并执行当前工作区可用的命令',
+  'tasks.commandSearch.empty': '没有匹配的命令',
   'tasks.pinned': '已置顶',
   'remote.error.title': '无法连接到桌面设备',
   'remote.error.hint': '请确认桌面 ZCode 已打开且网络可用',
@@ -801,6 +803,8 @@ const _en = {
   'tasks.banner.onlineDesc':
       'This connection can view the projects, tasks and sessions open on this device. After the QR code expires, reconnect from the desktop app.',
   'tasks.paneHint': 'Pick a task on the left to view its session',
+  'tasks.commandSearch': 'Search and run commands available in this workspace',
+  'tasks.commandSearch.empty': 'No matching commands',
   'tasks.pinned': 'Pinned',
   'remote.error.title': 'Cannot reach the desktop device',
   'remote.error.hint': 'Make sure ZCode desktop is running and the network works',

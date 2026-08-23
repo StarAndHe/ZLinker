@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Long-press on any task row opens a bottom-sheet action sheet
   (停止/暂停/恢复, enabled per phase) — replaces the per-row ⋮ menu,
   matching the official mobile list which has no row menus.
+- **List command palette**: the official search field at the top of the
+  task list opens a bottom sheet of workspace slash commands from
+  `prepareWorkspace`; picking one starts a draft chat with the composer
+  pre-filled (`ChatPage.initialComposerText`).
 
 ### Changed
 
@@ -38,6 +42,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   desktop page; composer chips (mode/model/thought) are icon-only 28×28
   below 640px and icon+label above, and model/thought labels now prefer
   the friendly option names from `WorkspacePrep` (GLM-5.3, 最高).
+- **Dual-pane polish**: left sidebar uses the official #1E1E1E surface
+  (right pane stays #161616); the chat pane is wrapped in a 12px-radius
+  bordered card with `min-width: 320px`; task rows target the official
+  ~62px height on mobile; the online banner explanation card uses 16px
+  padding.
 
 ### Fixed
 

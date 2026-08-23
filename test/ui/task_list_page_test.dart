@@ -65,8 +65,11 @@ class FakeDeviceSession extends DeviceSession {
       ChatHandle(state: ConversationState(), close: () async {});
 
   @override
-  Future<WorkspacePrep> prepareWorkspace() async =>
-      WorkspacePrep.fromMap(const {});
+  Future<WorkspacePrep> prepareWorkspace() async => WorkspacePrep.fromMap({
+        'slashCommands': [
+          {'name': 'compact', 'description': '压缩上下文', 'source': 'builtin'},
+        ],
+      });
 
   @override
   Future<List<SkillEntry>> skills() async => const [];
@@ -425,6 +428,58 @@ void main() {
     expect(find.byType(VerticalDivider), findsNothing);
     expect(find.byType(AppBar), findsOneWidget);
     expect(find.text('选择左侧任务查看会话'), findsNothing);
+  });
+
+  testWidgets('command search bar is visible on the list', (tester) async {
+    usePhone(tester);
+    final (store, device) = await setupDevice();
+    final session = FakeDeviceSession(
+      deviceId: device.id,
+      params: device.params!,
+      entries: const [],
+      workspaces: [
+        {'workspacePath': '/repo/app'},
+      ],
+    );
+    await tester.pumpWidget(wrap(TaskListPage(
+      store: store,
+      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      device: device,
+      sessionOverride: session,
+    )));
+    await tester.pumpAndSettle();
+    expect(find.text('搜索并执行当前工作区可用的命令'), findsOneWidget);
+  });
+
+  testWidgets('command search opens sheet and picks a slash command',
+      (tester) async {
+    usePhone(tester);
+    final (store, device) = await setupDevice();
+    final session = FakeDeviceSession(
+      deviceId: device.id,
+      params: device.params!,
+      entries: const [],
+      workspaces: [
+        {'workspacePath': '/repo/app'},
+      ],
+    );
+    await tester.pumpWidget(wrap(TaskListPage(
+      store: store,
+      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      device: device,
+      sessionOverride: session,
+    )));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('搜索并执行当前工作区可用的命令'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('/compact'), findsOneWidget);
+    await tester.tap(find.text('/compact'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ChatPage), findsOneWidget);
+    expect(find.text('/compact'), findsWidgets);
   });
 
   testWidgets('767 stays single column, 768 goes dual-pane', (tester) async {

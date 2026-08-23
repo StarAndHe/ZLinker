@@ -50,6 +50,7 @@ class _TaskListPageState extends State<TaskListPage> {
   /// pane instead of a pushed route.
   String? _paneSessionId;
   String? _paneTitle;
+  String? _paneInitialComposerText;
 
   /// Official breakpoint: Tailwind md — single column below, dual ≥768.
   static const double kDualPaneBreakpoint = 768;
@@ -100,22 +101,48 @@ class _TaskListPageState extends State<TaskListPage> {
   /// Official desktop layout: a 264px sidebar with its own slim header, a
   /// 1px divider, then the chat pane side by side.
   Widget _buildDualPane(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
+      backgroundColor:
+          isDark ? ZColors.darkBackground : ZColors.lightBackground,
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
             width: kSidebarWidth,
-            child: Column(
-              children: [
-                _sidebarHeader(context),
-                Expanded(child: _listBody(context, compact: true)),
-              ],
+            child: ColoredBox(
+              color: isDark ? ZColors.darkSidebar : ZColors.lightSidebar,
+              child: Column(
+                children: [
+                  _sidebarHeader(context),
+                  Expanded(child: _listBody(context, compact: true)),
+                ],
+              ),
             ),
           ),
           VerticalDivider(
               width: 1, thickness: 1, color: ZInk.hairline(context)),
-          Expanded(child: _chatPane(context)),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? ZColors.darkBackground
+                      : ZColors.lightBackground,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: ZInk.hairline(context)),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 320),
+                    child: _chatPane(context),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -161,12 +188,13 @@ class _TaskListPageState extends State<TaskListPage> {
       );
     }
     return ChatPage(
-      key: ValueKey(id ?? 'draft'),
+      key: ValueKey('${id ?? 'draft'}-${_paneInitialComposerText ?? ''}'),
       gateway: session,
       sessionId: id,
       title: title,
       theme: widget.theme,
       embedded: true,
+      initialComposerText: _paneInitialComposerText,
     );
   }
 
@@ -229,6 +257,15 @@ class _TaskListPageState extends State<TaskListPage> {
           child: ListView(
             padding: EdgeInsets.fromLTRB(compact ? 8 : 12, 12, compact ? 8 : 12, 32),
             children: [
+              _CommandSearchBar(
+                session: session,
+                compact: compact,
+                onPick: (cmd) => _openChat(
+                  title: tr(context, 'tasks.new'),
+                  initialComposerText: cmd,
+                ),
+              ),
+              const SizedBox(height: 12),
               if (showBanner) ...[
                 banner,
                 const SizedBox(height: 12),
@@ -635,8 +672,10 @@ class _TaskListPageState extends State<TaskListPage> {
             title: title,
           ),
           onLongPress: () => _taskActions(context, session, entry),
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(10, compact ? 7 : 9, 10, compact ? 7 : 9),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: compact ? 54 : 62),
+            child: Padding(
+            padding: EdgeInsets.fromLTRB(10, compact ? 7 : 12, 10, compact ? 7 : 12),
             child: Row(
               children: [
                 Expanded(
@@ -663,6 +702,7 @@ class _TaskListPageState extends State<TaskListPage> {
                 PhasePill(label: phaseLabel, phase: entry.phase, solid: true),
               ],
             ),
+          ),
           ),
         ),
       ),
@@ -719,7 +759,11 @@ class _TaskListPageState extends State<TaskListPage> {
   /// native connection STAYS live — one sid, one terminal, and we are it);
   /// on phones it pushes the full-screen page. Falls back to the WebView
   /// deep link when no protocol session exists.
-  Future<void> _openChat({String? sessionId, required String title}) async {
+  Future<void> _openChat({
+    String? sessionId,
+    required String title,
+    String? initialComposerText,
+  }) async {
     final session = _session;
     if (session == null || session.status == DeviceStatus.disconnected) {
       await _openRemote(targetSessionId: sessionId, targetTitle: title);
@@ -731,6 +775,7 @@ class _TaskListPageState extends State<TaskListPage> {
       setState(() {
         _paneSessionId = sessionId;
         _paneTitle = title;
+        _paneInitialComposerText = initialComposerText;
       });
       return;
     }
@@ -740,6 +785,7 @@ class _TaskListPageState extends State<TaskListPage> {
         sessionId: sessionId,
         title: title,
         theme: widget.theme,
+        initialComposerText: initialComposerText,
       ),
     ));
   }
@@ -987,7 +1033,7 @@ class _ConnectionBanner extends StatelessWidget {
             side: BorderSide(color: ZInk.hairline(context)),
           ),
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(16),
             child: Text(
               tr(context, 'tasks.banner.onlineDesc'),
               style: TextStyle(
@@ -1083,6 +1129,155 @@ class _ConnectionBanner extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Official list-page command palette entry: a read-only search field that
+/// opens a bottom sheet of workspace slash commands from prepareWorkspace.
+class _CommandSearchBar extends StatefulWidget {
+  final DeviceSession? session;
+  final bool compact;
+  final ValueChanged<String> onPick;
+
+  const _CommandSearchBar({
+    required this.session,
+    required this.compact,
+    required this.onPick,
+  });
+
+  @override
+  State<_CommandSearchBar> createState() => _CommandSearchBarState();
+}
+
+class _CommandSearchBarState extends State<_CommandSearchBar> {
+  Future<void> _openSheet() async {
+    final session = widget.session;
+    if (session == null || session.status != DeviceStatus.connected) return;
+    WorkspacePrep? prep;
+    try {
+      prep = await session.prepareWorkspace();
+    } catch (_) {}
+    if (!mounted) return;
+    final commands = prep?.slashCommands ?? const <SlashCommand>[];
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetCtx) {
+        final query = ValueNotifier('');
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(sheetCtx).bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: TextField(
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: tr(sheetCtx, 'tasks.commandSearch'),
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                    ),
+                    onChanged: (v) => query.value = v,
+                  ),
+                ),
+                Flexible(
+                  child: ValueListenableBuilder<String>(
+                    valueListenable: query,
+                    builder: (context, q, _) {
+                      final needle = q.trim().toLowerCase();
+                      final filtered = commands.where((c) {
+                        if (needle.isEmpty) return true;
+                        return c.name.toLowerCase().contains(needle) ||
+                            c.description.toLowerCase().contains(needle);
+                      }).toList();
+                      if (filtered.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            tr(sheetCtx, 'tasks.commandSearch.empty'),
+                            style: TextStyle(
+                                fontSize: 13, color: ZInk.faint(sheetCtx)),
+                          ),
+                        );
+                      }
+                      return ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: filtered.length,
+                        itemBuilder: (_, i) {
+                          final c = filtered[i];
+                          final label = c.name.startsWith('/')
+                              ? c.name
+                              : '/${c.name}';
+                          return ListTile(
+                            title: Text(label),
+                            subtitle: c.description.isNotEmpty
+                                ? Text(c.description,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis)
+                                : null,
+                            onTap: () {
+                              Navigator.of(sheetCtx).pop();
+                              widget.onPick(label);
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.session != null &&
+        widget.session!.status == DeviceStatus.connected;
+    return Material(
+      color: Theme.of(context).cardTheme.color,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: ZInk.hairline(context)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: enabled ? _openSheet : null,
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+              horizontal: widget.compact ? 10 : 12,
+              vertical: widget.compact ? 9 : 11),
+          child: Row(
+            children: [
+              Icon(Icons.search,
+                  size: widget.compact ? 18 : 20,
+                  color: enabled ? ZInk.muted(context) : ZInk.ghost(context)),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  tr(context, 'tasks.commandSearch'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: widget.compact ? 12.5 : 13,
+                    color: enabled
+                        ? ZInk.faint(context)
+                        : ZInk.ghost(context),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

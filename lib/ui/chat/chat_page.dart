@@ -25,6 +25,9 @@ class ChatPage extends StatefulWidget {
   /// button in the app bar (there is no route to pop inside the pane).
   final bool embedded;
 
+  /// Pre-fill the composer (e.g. a slash command picked on the list page).
+  final String? initialComposerText;
+
   const ChatPage({
     super.key,
     required this.gateway,
@@ -32,6 +35,7 @@ class ChatPage extends StatefulWidget {
     required this.title,
     this.theme,
     this.embedded = false,
+    this.initialComposerText,
   });
 
   @override
@@ -76,6 +80,10 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     _sessionId = widget.sessionId;
+    final initial = widget.initialComposerText;
+    if (initial != null && initial.isNotEmpty) {
+      _inputController.text = initial;
+    }
     _scrollController.addListener(_onScroll);
     if (_sessionId != null) {
       _subscribe();

@@ -24,7 +24,8 @@ class ZColors {
   // Official surfaces.
   static const darkBackground = Color(0xFF161616);
   static const darkCard = Color(0xFF2B2B2B);
-  static const darkSidebar = Color(0xFF161616);
+  /// Official dual-pane left column (--workspace-sidebar-panel-width area).
+  static const darkSidebar = Color(0xFF1E1E1E);
   static const darkSecondary = Color(0xFF363636);
   static const lightBackground = Color(0xFFF8F8F8);
   static const lightCard = Color(0xFFFFFFFF);
