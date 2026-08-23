@@ -47,9 +47,39 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(ui.nativeListEnabled, isTrue);
-      await tester.tap(find.byType(SwitchListTile));
+      await tester
+          .tap(find.widgetWithText(SwitchListTile, '原生任务列表'));
       await tester.pumpAndSettle();
       expect(ui.nativeListEnabled, isFalse);
+    });
+
+    testWidgets('notification switches toggle master and channels',
+        (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final store = DeviceStore();
+      final theme = ThemeController();
+      final ui = UiSettings();
+      await tester.pumpWidget(
+          host(SettingsPage(store: store, theme: theme, ui: ui), ui));
+      await tester.pumpAndSettle();
+
+      // Channel rows are visible while the master switch is on.
+      expect(find.text('任务事件'), findsOneWidget);
+      expect(find.text('闲时事件'), findsOneWidget);
+      expect(find.text('自动化结果'), findsOneWidget);
+
+      await tester
+          .tap(find.widgetWithText(SwitchListTile, '任务事件'));
+      await tester.pumpAndSettle();
+      expect(ui.notifyTasksEnabled, isFalse);
+      expect(ui.notificationsEnabled, isTrue);
+
+      // Master off hides the channel rows.
+      await tester
+          .tap(find.widgetWithText(SwitchListTile, '通知'));
+      await tester.pumpAndSettle();
+      expect(ui.notificationsEnabled, isFalse);
+      expect(find.text('任务事件'), findsNothing);
     });
 
     testWidgets('language switches texts live', (WidgetTester tester) async {

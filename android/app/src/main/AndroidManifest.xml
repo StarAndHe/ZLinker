@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- Android 13+ runtime notification permission (local notifications
+         for task/off-peak/automation results). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- Device URLs carry sid/hash credentials — keep them out of cloud
          backups. -->
     <application

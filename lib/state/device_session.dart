@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../protocol/automation.dart';
 import '../protocol/connection_params.dart';
 import '../protocol/conversation.dart';
+import '../protocol/off_peak.dart';
 import '../protocol/relay_client.dart';
 import '../protocol/remote_client.dart';
 import 'device_store.dart';
@@ -39,6 +41,33 @@ String workspaceTitle(Map<String, dynamic> w) {
 
 enum DeviceStatus { disconnected, connecting, connected, error }
 
+/// What the automations UI needs from a device link: live status plus the
+/// automation port. [DeviceSession] implements this; tests fake it.
+abstract interface class AutomationHost {
+  DeviceStatus get status;
+  AutomationPort get automation;
+}
+
+/// Same for the off-peak UI: live status, the off-peak port and the
+/// workspace scope the submitted run binds to.
+abstract interface class OffPeakHost {
+  DeviceStatus get status;
+  OffPeakPort get offPeak;
+
+  /// `workspacePath` (+ identity) of the active workspace for submissions.
+  Map<String, dynamic> get offPeakScope;
+}
+
+/// A device link the notification hub can observe: live task phases plus
+/// the automation / off-peak ports. [DeviceSession] implements this.
+abstract interface class NotifiableSession
+    implements AutomationHost, OffPeakHost, Listenable {
+  String get deviceId;
+  @override
+  DeviceStatus get status;
+  SessionsIndexState? get sessions;
+}
+
 /// One native protocol connection to one device. Owns the full stack
 /// (relay → bridge → conversation → sessions-index) and exposes just what
 /// the native UI needs: online status, the live task list and task
@@ -51,11 +80,23 @@ enum DeviceStatus { disconnected, connecting, connected, error }
 ///   versa).
 /// - Being KICKED by another terminal is terminal for this session: no
 ///   auto-reconnect (the relay already suppresses it).
-class DeviceSession extends ChangeNotifier {
+class DeviceSession extends ChangeNotifier
+    implements AutomationHost, OffPeakHost, NotifiableSession {
+  @override
   final String deviceId;
   final RemoteConnectionParams params;
 
-  DeviceSession({required this.deviceId, required this.params});
+  /// Last workspace this device showed (hub memory; survives WebView
+  /// handovers within one app run).
+  final String? preferredWorkspaceKey;
+  final void Function(String workspaceKey)? onWorkspaceOpened;
+
+  DeviceSession({
+    required this.deviceId,
+    required this.params,
+    this.preferredWorkspaceKey,
+    this.onWorkspaceOpened,
+  });
 
   RemoteClient? _client;
   BridgeSession? _bridge;
@@ -66,6 +107,7 @@ class DeviceSession extends ChangeNotifier {
   int _retryAttempts = 0;
   bool _disposed = false;
   bool _connecting = false;
+  bool _openingWorkspace = false;
   bool _kicked = false;
   String? _error;
 
@@ -73,15 +115,20 @@ class DeviceSession extends ChangeNotifier {
   List<Map<String, dynamic>> _workspaces = [];
   Map<String, dynamic>? _activeWorkspace;
 
+  @override
   DeviceStatus get status => _status;
   bool get kicked => _kicked;
   String? get error => _error;
+
+  /// True while a workspace bridge + sessions-index open is in flight.
+  bool get openingWorkspace => _openingWorkspace;
 
   /// Workspaces reported by bootstrap (raw maps).
   List<Map<String, dynamic>> get workspaces => _workspaces;
   Map<String, dynamic>? get activeWorkspace => _activeWorkspace;
 
   /// Live sessions-index state of the active workspace, if subscribed.
+  @override
   SessionsIndexState? get sessions => _sessionsSub?.state;
 
   /// Sessions with phase running/prewarming — the card badge count.
@@ -121,10 +168,12 @@ class DeviceSession extends ChangeNotifier {
             if (w is Map) w.cast<String, dynamic>(),
       ];
       _retryAttempts = 0;
-      // Auto-open the single workspace (web mobile flow). With several
-      // workspaces the task list page offers a picker.
-      if (_workspaces.length == 1 && _activeWorkspace == null) {
-        await openWorkspace(_workspaces.first);
+      // Auto-open a workspace so the native list works immediately: the
+      // last-used one when known, else the first. (The web mobile flow
+      // auto-opens only a single workspace and shows a picker otherwise;
+      // here the picker is the fallback, never a blocking spinner.)
+      if (_activeWorkspace == null && _workspaces.isNotEmpty) {
+        await openWorkspace(_preferredWorkspace ?? _workspaces.first);
       }
       _setStatus(DeviceStatus.connected);
     } catch (e) {
@@ -207,12 +256,25 @@ class DeviceSession extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The workspace matching [preferredWorkspaceKey], if still listed.
+  Map<String, dynamic>? get _preferredWorkspace {
+    final key = preferredWorkspaceKey;
+    if (key == null) return null;
+    for (final w in _workspaces) {
+      if (workspaceKeyOf(w) == key) return w;
+    }
+    return null;
+  }
+
   /// Opens (or switches to) a workspace bridge and subscribes its
   /// sessions-index. Switching disposes the previous bridge first.
   Future<void> openWorkspace(Map<String, dynamic> workspace) async {
     final key = workspaceKeyOf(workspace);
     final client = _client;
-    if (key == null || client == null || _disposed) return;
+    if (key == null || client == null || _disposed || _openingWorkspace) {
+      return;
+    }
+    _openingWorkspace = true;
     try {
       final bridge = await client.openBridge(key);
       if (_disposed || _client != client) {
@@ -242,19 +304,55 @@ class DeviceSession extends ChangeNotifier {
       }
       _sessionsSub = sub;
       sub.state.addListener(_onSessionsChanged);
+      _error = null;
+      onWorkspaceOpened?.call(key);
       notifyListeners();
     } catch (e) {
       _log('[session] workspace open failed: $e');
-      // The relay link itself is fine; only the native list is degraded.
-      if (_status == DeviceStatus.connected) {
-        _error = '$e';
-        notifyListeners();
-      }
+      // The relay link itself is fine; only the native list is degraded —
+      // surface the reason so the UI can offer retry / web fallback
+      // instead of an eternal spinner.
+      _error = '$e';
+      notifyListeners();
+    } finally {
+      _openingWorkspace = false;
     }
   }
 
   void _onSessionsChanged() {
     if (!_disposed) notifyListeners();
+  }
+
+  /// Task-list retry: re-runs bootstrap and re-opens the active (or
+  /// preferred / first) workspace. Falls back to a full reconnect when
+  /// the relay link itself is gone.
+  Future<void> reloadTasks() async {
+    final client = _client;
+    if (client == null || _disposed) {
+      await connect();
+      return;
+    }
+    try {
+      final bootstrap = await client.bootstrap();
+      final list = bootstrap['workspaces'];
+      _workspaces = [
+        if (list is List)
+          for (final w in list)
+            if (w is Map) w.cast<String, dynamic>(),
+      ];
+    } catch (e) {
+      _error = '$e';
+      notifyListeners();
+      return;
+    }
+    final target =
+        _activeWorkspace ?? _preferredWorkspace ?? _workspaces.firstOrNull;
+    if (target != null) {
+      await openWorkspace(target);
+    } else {
+      // Nothing to open (no workspace on the desktop) — just repaint.
+      notifyListeners();
+    }
   }
 
   Future<void> stopTask(String sessionId) async {
@@ -285,6 +383,30 @@ class DeviceSession extends ChangeNotifier {
     return bridge.channels.call(channel, method, args);
   }
 
+  /// Server-side automations of the connected desktop. Bound to the
+  /// zcode-agent channel (listAllAutomations was probed there).
+  @override
+  late final AutomationPort automation = AutomationPort(
+    (method, args) => callChannel('zcode-agent', method, args),
+  );
+
+  /// Off-peak tasks of the connected desktop (off-peak-task channel).
+  @override
+  late final OffPeakPort offPeak = OffPeakPort(
+    (method, args) => callChannel('off-peak-task', method, args),
+  );
+
+  /// Workspace scope (workspacePath/identity) for off-peak submissions.
+  @override
+  Map<String, dynamic> get offPeakScope {
+    final ws = _activeWorkspace ?? const <String, dynamic>{};
+    return {
+      'workspacePath': ws['workspacePath'],
+      if (ws['workspaceIdentity'] != null)
+        'workspaceIdentity': ws['workspaceIdentity'],
+    };
+  }
+
   /// Minimal automation primitive: creates a new task (session) on the
   /// active workspace with [text] as the first message. Returns the new
   /// sessionId.
@@ -309,6 +431,7 @@ class DeviceSession extends ChangeNotifier {
     if (_disposed) return;
     _retryTimer?.cancel();
     _connecting = false;
+    _openingWorkspace = false;
     final client = _client;
     final bridge = _bridge;
     final sub = _sessionsSub;
@@ -352,11 +475,17 @@ class DeviceSessionHub extends ChangeNotifier {
 
   final Map<String, DeviceSession> _sessions = {};
   final Map<String, Timer> _resumes = {};
+
+  /// Last-opened workspace per device (survives WebView handovers).
+  final Map<String, String> _lastWorkspaceKey = {};
   bool _disposed = false;
 
   DeviceSessionHub({required this.nativeListEnabled});
 
   DeviceSession? sessionOf(String deviceId) => _sessions[deviceId];
+
+  /// All live native sessions (notification hub observes these).
+  Iterable<DeviceSession> get activeSessions => _sessions.values;
 
   /// Ensures [device] has a (re)connecting native session. Returns null
   /// for devices whose URL cannot be parsed (no protocol layer possible).
@@ -372,7 +501,12 @@ class DeviceSessionHub extends ChangeNotifier {
     }
     final params = device.params;
     if (params == null) return null;
-    final session = DeviceSession(deviceId: device.id, params: params);
+    final session = DeviceSession(
+      deviceId: device.id,
+      params: params,
+      preferredWorkspaceKey: _lastWorkspaceKey[device.id],
+      onWorkspaceOpened: (key) => _lastWorkspaceKey[device.id] = key,
+    );
     _sessions[device.id] = session;
     session.addListener(_onSessionChanged);
     unawaited(session.connect());

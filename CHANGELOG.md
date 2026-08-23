@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-08-23
+
+### Added
+
+- Server-side automations (设备自动化): full CRUD against the desktop
+  `zcode-cron-scheduler` — cron / interval+cap / one-shot-delay triggers,
+  optional model/mode/thoughtLevel/targetTaskId, enable toggle, edit and
+  delete-with-confirm; humanized trigger summaries; unavailable state
+  guides to local scheduled messages. Entry from the task-list menu and
+  the combined scheduled page (`automation.dart` port with probed method
+  names; `listAllAutomations` live-confirmed).
+- Off-peak tasks (闲时任务): submit queued runs for compute-rich windows —
+  title/prompt/model/earliest/keepAwake/permission form with three quick
+  templates, live queue position (#N), pause / resume / cancel, history
+  with duration, official error states (仅 Coding Plan 可用 / 额度已用尽 /
+  服务暂不可用), quota header, and view-result deep-link into the produced
+  session (`off_peak.dart` port + error classification).
+- Local notifications (`flutter_local_notifications`): three separately
+  silenceable channels (task events / off-peak events / automation
+  results), Android 13+ runtime permission asked lazily, tap on a
+  notification deep-links to the conversation, master + per-channel
+  switches in settings; task events ride the sessions-index stream,
+  off-peak (60s) and automation (120s) results poll — pure diff rules in
+  `notify_rules.dart`, glue in `notification_hub.dart`.
+- Combined scheduling page: 设备自动化 + 本地定时发送 coexisting sections.
+- ~58 new tests (automation/off-peak ports with fake channels, pages with
+  fake hosts, notification rules + hub glue, settings switches).
+
 ## [1.1.0] - 2026-08-23
 
 ### Added

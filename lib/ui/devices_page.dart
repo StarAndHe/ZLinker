@@ -248,6 +248,7 @@ class _DevicesPageState extends State<DevicesPage> {
     Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => ScheduledPage(
         devices: widget.store,
+        hub: widget.hub,
         store: widget.scheduled,
       ),
     ));

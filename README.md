@@ -73,7 +73,10 @@ Sounds good? **Star ⭐ the repo** to follow along.
 | 📊 **Native task list** | Live sessions-index: title, phase, latest assistant preview, relative time; stop / pause / resume; multi-workspace switcher |
 | 🎯 **Auto deep-link** | Tap a task → the WebView opens the official remote and injects clicks to reach that exact session (handles the "taken over by another device" screen) |
 | 📈 **Usage & model providers** | Per-device entitlement snapshot (remaining quota, limits, subscription) and model-provider management over the workspace bridge |
-| ⏰ **Scheduled messages** | Minimal automation: send a message to a device at a chosen time (app-side timer + `createSession`) |
+| 🤖 **Server-side automations** | Full CRUD of desktop cron/interval/one-shot automations (`zcode-cron-scheduler`): humanized trigger summaries, enable toggle, edit / delete with confirm — they fire on the desktop, app not required online |
+| 🌙 **Off-peak tasks** | Submit queued runs for compute-rich windows (Coding Plan, monthly quota): live queue position (#N), pause / resume / cancel, history with duration, official error states (subscription / quota / unavailable), view-result deep-links into the produced session; three quick templates included |
+| 🔔 **Local notifications** | Task completed/failed, off-peak results and automation runs pushed to the phone (three separately-silenceable channels); tapping a notification deep-links to the conversation — web-remote browser notifications never reach a phone |
+| ⏰ **Scheduled messages** | Local timer-based send to a device at a chosen time (app-side timer + `createSession`); works even when the target device is offline, complements server-side automations |
 | ⚙️ **Settings & about** | Theme (dark / light / system), language (中文 / English), native-list switch, channel-aware update check, licenses, privacy policy, local usage statistics |
 | 🌐 **In-app web remote** | Fullscreen `flutter_inappwebview` with progress bar, reload, "open in browser" escape hatch; DOM storage keeps the official page's pairing across opens |
 | 🎨 **Official design tokens** | Neutral gray scale + sky accent extracted from the real bundle; dark `#161616` default |
@@ -151,6 +154,7 @@ flutter test      # all green (protocol unit tests included)
 ┌──────────────────────────────────────────────────────────┐
 │ UI (lib/ui)                                              │
 │   devices_page · task_list_page · remote_page            │
+│   automations_page · off_peak_page ·                     │
 │   settings / about / usage · device_usage ·              │
 │   model_providers · scheduled · qr_scan                  │
 ├──────────────────────────────────────────────────────────┤
@@ -159,10 +163,18 @@ flutter test      # all green (protocol unit tests included)
 │   device_session — per-device connection state machine   │
 │                    (connect / suspend / resume, retries) │
 │   scheduled_store — scheduled messages + scheduler       │
+│   notification_hub — task/off-peak/automation →          │
+│                      local notifications                 │
 ├──────────────────────────────────────────────────────────┤
 │ Protocol (lib/protocol — ported, battle-tested)          │
 │   relay_client · remote_client · conversation (V4)       │
 │   channel_client · rpc_transport · ipc_codec · proof     │
+│   automation · off_peak · method_probe                   │
+│      (channel ports with probed method names)            │
+├──────────────────────────────────────────────────────────┤
+│ Notifications (lib/notifications)                        │
+│   notification_service — 3 channels, permissions, taps   │
+│   notify_rules — pure before/after event derivation      │
 ├──────────────────────────────────────────────────────────┤
 │ Conversations (remote_page)                              │
 │   official ZCode Web Remote in a WebView                 │
@@ -174,11 +186,15 @@ flutter test      # all green (protocol unit tests included)
 ```text
 lib/
 ├── main.dart                  # entry: stores + session hub + scheduler
+│                              #       + notification hub & deep-link taps
 ├── protocol/                  # pure-Dart ZCode remote protocol stack
 │   ├── relay_client.dart      # wss relay: auth, pairing, heartbeat, reconnect
 │   ├── remote_client.dart     # bootstrap · bridges · recovery · view-state
 │   ├── conversation.dart      # Conversation V4: sessions-index, commands
 │   ├── channel_client.dart    # IPC channel RPC
+│   ├── automation.dart        # automations port (probed CRUD methods)
+│   ├── off_peak.dart          # off-peak tasks port + error classification
+│   ├── method_probe.dart      # try-until-accepted channel method probing
 │   ├── rpc_transport.dart     # rpc-frame fragmentation + crc32
 │   ├── ipc_codec.dart         # value codec + frame parser
 │   ├── connection_params.dart # remote URL parsing + relay ws derivation
@@ -186,21 +202,29 @@ lib/
 ├── state/
 │   ├── device_store.dart      # device model + persistence + import/export
 │   ├── device_session.dart    # DeviceSession + hub (one terminal per device)
-│   └── scheduled_store.dart   # scheduled messages + MessageScheduler
+│   │                          #   + automation/off-peak host interfaces
+│   ├── scheduled_store.dart   # scheduled messages + MessageScheduler
+│   └── notification_hub.dart  # sessions/off-peak/automation → notifications
+├── notifications/
+│   ├── notification_service.dart # 3 channels · permissions · tap payloads
+│   └── notify_rules.dart         # pure before/after event derivation
 ├── ui/
 │   ├── theme.dart             # official design tokens + dark/light themes
-│   ├── ui_settings.dart       # locale + native-list switch + tr() tables
+│   ├── ui_settings.dart       # locale + native-list/notification switches + tr()
 │   ├── devices_page.dart      # device list with status dots & badges
 │   ├── task_list_page.dart    # native task list (sessions-index)
 │   ├── remote_page.dart       # WebView remote + deep-link injection
+│   ├── automations_page.dart  # server-side automations (CRUD + toggles)
+│   ├── off_peak_page.dart     # off-peak tasks (queue, quota, results)
 │   ├── settings_page.dart · about_page.dart · usage_stats_page.dart
 │   ├── device_usage_page.dart · model_providers_page.dart
 │   ├── scheduled_page.dart · qr_scan_page.dart
 └── update/                    # app channel + github release checker
 ```
 
-~7,700 lines of Dart in `lib/`, ~1,800 lines of tests (protocol codecs,
-state machines, delta application, stores, i18n, deep-link JS builder).
+~11,300 lines of Dart in `lib/`, ~3,200 lines of tests (protocol codecs,
+state machines, delta application, stores, i18n, deep-link JS builder,
+automation/off-peak ports, notification rules).
 
 ---
 
@@ -212,6 +236,9 @@ state machines, delta application, stores, i18n, deep-link JS builder).
 - [x] Tap-to-conversation deep-link (WebView injection)
 - [x] Scheduled messages (minimal automation)
 - [x] Store-ready builds (channel split, privacy manifest)
+- [x] Server-side automations (cron / interval / one-shot, full CRUD)
+- [x] Off-peak tasks (queue position, quota, view-result deep-link)
+- [x] Local notifications (task / off-peak / automation channels + tap deep-link)
 - [ ] Screenshots + demo GIF in the README
 - [ ] Clipboard detection — offer to add when a remote URL is copied
 - [ ] Drag-to-reorder and pin devices
@@ -219,7 +246,6 @@ state machines, delta application, stores, i18n, deep-link JS builder).
 - [ ] Home-screen quick-open widget (Android)
 - [ ] iOS artifacts in the release workflow
 - [ ] Play Store / App Store release
-- [ ] Scheduled messages v2 — recurring rules, background delivery
 
 ---
 
@@ -244,11 +270,14 @@ was ported from.
 - **ZCode & the official web remote** — the conversation experience and
   the protocol it speaks; conversations always run there.
 - The Flutter ecosystem: `flutter_inappwebview`, `mobile_scanner`,
-  `zxing2`, `shared_preferences`, `url_launcher`, `web_socket_channel`.
+  `zxing2`, `shared_preferences`, `url_launcher`, `web_socket_channel`,
+  `flutter_local_notifications`.
 
 > ⚠️ ZRemote is an independent, community tool. It is not affiliated with,
 > endorsed by, or connected to Zhipu AI. Use it only with devices you own and
 > in accordance with the ZCode terms of service.
+
+[Privacy Policy](https://privacy.songsong.org/en.html) · [Terms of Service](https://privacy.songsong.org/tos-en.html)
 
 ---
 

@@ -62,7 +62,10 @@
 | 📊 **原生任务列表** | 实时 sessions-index:标题、阶段、最新回复预览、相对时间;停止 / 暂停 / 恢复;多工作区切换 |
 | 🎯 **自动直达** | 点任务 → WebView 打开官方远程并注入点击,落到那个会话(处理「已被其他设备接管」屏) |
 | 📈 **用量与模型供应商** | 按设备查权益快照(剩余额度、配额限制、订阅)与管理模型供应商(工作区 bridge 上的 RPC) |
-| ⏰ **定时消息** | 最小自动化:到点给指定设备发一条消息(App 内定时器 + `createSession`) |
+| 🤖 **服务端自动化** | 桌面端定时任务(cron / 间隔重复 / 一次性延迟)完整增删改查:人性化触发摘要、启停开关、编辑 / 删除确认;由桌面端调度进程触发,App 无需在线 |
+| 🌙 **闲时任务** | 提交排队任务,在算力富余时段免费执行(Coding Plan、月度额度):排队位置(#N)实时显示、暂停 / 继续 / 取消、带时长历史、订阅/额度/不可用三态官方文案,「查看结果」直达产出会话;内置三个快捷模板 |
+| 🔔 **本地通知** | 任务完成/失败、闲时结果、自动化触发推送到手机(三条可分别静音的渠道);点通知直达对应对话 —— Web 远程的浏览器通知在手机上是收不到的 |
+| ⏰ **本地定时发送** | App 内定时器 + `createSession`,到点给指定设备发消息;目标设备离线也能用,与服务端自动化互补 |
 | ⚙️ **设置与关于** | 主题(深 / 浅 / 跟随系统)、语言(中文 / English)、原生列表开关、按渠道分流的检查更新、开源许可、隐私政策、本地使用统计 |
 | 🌐 **应用内远程页** | 全屏 `flutter_inappwebview`,加载进度条、刷新、"在浏览器中打开"逃生口;DOM Storage 保留官方页配对状态 |
 | 🎨 **官方设计 token** | 从官方 bundle 提取的中性灰阶 + 天空蓝;深色 `#161616` 默认 |
@@ -128,6 +131,7 @@ flutter test      # 全部通过(含协议单测)
 ┌──────────────────────────────────────────────────────────┐
 │ UI (lib/ui)                                              │
 │   devices_page · task_list_page · remote_page            │
+│   automations_page · off_peak_page ·                     │
 │   settings / about / usage · device_usage ·              │
 │   model_providers · scheduled · qr_scan                  │
 ├──────────────────────────────────────────────────────────┤
@@ -136,10 +140,17 @@ flutter test      # 全部通过(含协议单测)
 │   device_session — 每设备连接状态机                        │
 │                    (连接 / 挂起 / 恢复 / 重试)             │
 │   scheduled_store — 定时消息 + 调度器                      │
+│   notification_hub — 任务/闲时/自动化 → 本地通知           │
 ├──────────────────────────────────────────────────────────┤
 │ Protocol (lib/protocol — 移植自参考实现,经真机验证)        │
 │   relay_client · remote_client · conversation (V4)       │
 │   channel_client · rpc_transport · ipc_codec · proof     │
+│   automation · off_peak · method_probe                   │
+│      (带方法名探测的 channel 端口)                         │
+├──────────────────────────────────────────────────────────┤
+│ Notifications (lib/notifications)                        │
+│   notification_service — 三渠道 · 权限 · 点击 payload      │
+│   notify_rules — 纯函数的前后快照事件推导                   │
 ├──────────────────────────────────────────────────────────┤
 │ 对话 (remote_page)                                       │
 │   WebView 内的 ZCode 官方 Web 远程                         │
@@ -151,11 +162,15 @@ flutter test      # 全部通过(含协议单测)
 ```text
 lib/
 ├── main.dart                  # 入口:stores + 会话 hub + 调度器
+│                              #       + 通知 hub 与点击直达
 ├── protocol/                  # 纯 Dart 的 ZCode 远程协议栈
 │   ├── relay_client.dart      # wss relay:认证、配对、心跳、重连
 │   ├── remote_client.dart     # bootstrap · bridge · 恢复 · view-state
 │   ├── conversation.dart      # Conversation V4:sessions-index、命令
 │   ├── channel_client.dart    # IPC channel RPC
+│   ├── automation.dart        # 自动化端口(带方法名探测的 CRUD)
+│   ├── off_peak.dart          # 闲时任务端口 + 错误分类
+│   ├── method_probe.dart      # 逐候选试探 channel 方法名
 │   ├── rpc_transport.dart     # rpc-frame 分片 + crc32
 │   ├── ipc_codec.dart         # 值编解码 + 帧解析
 │   ├── connection_params.dart # 远程 URL 解析 + relay ws 推导
@@ -163,21 +178,28 @@ lib/
 ├── state/
 │   ├── device_store.dart      # 设备模型 + 持久化 + 导入导出
 │   ├── device_session.dart    # DeviceSession + hub(每设备一个终端)
-│   └── scheduled_store.dart   # 定时消息 + MessageScheduler
+│   │                          #   + automation/off-peak host 接口
+│   ├── scheduled_store.dart   # 定时消息 + MessageScheduler
+│   └── notification_hub.dart  # 任务/闲时/自动化 → 本地通知
+├── notifications/
+│   ├── notification_service.dart # 三渠道 · 权限 · 点击 payload
+│   └── notify_rules.dart         # 纯函数的前后快照事件推导
 ├── ui/
 │   ├── theme.dart             # 官方设计 token + 深浅主题
-│   ├── ui_settings.dart       # 语言 + 原生列表开关 + tr() 词条
+│   ├── ui_settings.dart       # 语言 + 原生列表/通知开关 + tr() 词条
 │   ├── devices_page.dart      # 设备列表(状态点 + 徽标)
 │   ├── task_list_page.dart    # 原生任务列表(sessions-index)
 │   ├── remote_page.dart       # WebView 远程 + 直达注入
+│   ├── automations_page.dart  # 服务端自动化(增删改查 + 启停)
+│   ├── off_peak_page.dart     # 闲时任务(排队、额度、结果)
 │   ├── settings_page.dart · about_page.dart · usage_stats_page.dart
 │   ├── device_usage_page.dart · model_providers_page.dart
 │   ├── scheduled_page.dart · qr_scan_page.dart
 └── update/                    # 应用渠道 + GitHub release 检查
 ```
 
-`lib/` 约 7,700 行 Dart,测试约 1,800 行(协议编解码、状态机、delta 应用、
-存储、i18n、直达 JS 构造)。
+`lib/` 约 11,300 行 Dart,测试约 3,200 行(协议编解码、状态机、delta 应用、
+存储、i18n、直达 JS 构造、自动化/闲时端口、通知规则)。
 
 ---
 
@@ -189,6 +211,9 @@ lib/
 - [x] 点击直达对话(WebView 注入)
 - [x] 定时消息(最小自动化)
 - [x] 商店就绪构建(渠道分流、隐私清单)
+- [x] 服务端自动化(cron / 间隔 / 一次性,完整增删改查)
+- [x] 闲时任务(排队位置、额度、查看结果直达)
+- [x] 本地通知(任务 / 闲时 / 自动化三渠道 + 点击直达)
 - [ ] README 截图 + 演示 GIF
 - [ ] 剪贴板检测 —— 复制远程链接后自动提示添加
 - [ ] 拖拽排序 + 置顶设备
@@ -196,7 +221,6 @@ lib/
 - [ ] 桌面快捷打开小组件(Android)
 - [ ] Release 工作流产出 iOS 产物
 - [ ] Play 商店 / App Store 上架
-- [ ] 定时消息 v2 —— 周期规则、后台投递
 
 ---
 
@@ -216,9 +240,11 @@ flutter test      # 全部通过
 ## 🙏 致谢
 
 - **ZCode 与官方 Web 远程** —— 对话体验与协议能力都在那里;对话永远跑在官方页。
-- Flutter 生态:`flutter_inappwebview`、`mobile_scanner`、`zxing2`、`shared_preferences`、`url_launcher`、`web_socket_channel`。
+- Flutter 生态:`flutter_inappwebview`、`mobile_scanner`、`zxing2`、`shared_preferences`、`url_launcher`、`web_socket_channel`、`flutter_local_notifications`。
 
 > ⚠️ ZRemote 是独立的社区工具,与智谱 AI 无任何隶属、背书或关联。请仅用于你自己的设备,并遵守 ZCode 服务条款。
+
+[隐私政策](https://privacy.songsong.org/) · [服务条款](https://privacy.songsong.org/tos.html)
 
 ---
 

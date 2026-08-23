@@ -167,6 +167,37 @@ class _SettingsPageState extends State<SettingsPage> {
               value: ui.nativeListEnabled,
               onChanged: (v) => ui.setNativeListEnabled(v),
             ),
+            _header(context, tr(context, 'settings.notifications')),
+            SwitchListTile(
+              secondary: const Icon(Icons.notifications_outlined),
+              title: Text(tr(context, 'settings.notifications')),
+              subtitle: Text(tr(context, 'settings.notificationsHint')),
+              value: ui.notificationsEnabled,
+              onChanged: (v) => ui.setNotificationsEnabled(v),
+            ),
+            if (ui.notificationsEnabled) ...[
+              SwitchListTile(
+                secondary: const SizedBox(width: 24),
+                dense: true,
+                title: Text(tr(context, 'settings.notify.tasks')),
+                value: ui.notifyTasksEnabled,
+                onChanged: (v) => ui.setNotifyTasksEnabled(v),
+              ),
+              SwitchListTile(
+                secondary: const SizedBox(width: 24),
+                dense: true,
+                title: Text(tr(context, 'settings.notify.offPeak')),
+                value: ui.notifyOffPeakEnabled,
+                onChanged: (v) => ui.setNotifyOffPeakEnabled(v),
+              ),
+              SwitchListTile(
+                secondary: const SizedBox(width: 24),
+                dense: true,
+                title: Text(tr(context, 'settings.notify.auto')),
+                value: ui.notifyAutoEnabled,
+                onChanged: (v) => ui.setNotifyAutoEnabled(v),
+              ),
+            ],
             _header(context, tr(context, 'settings.data')),
             ListTile(
               leading: const Icon(Icons.bar_chart_outlined),

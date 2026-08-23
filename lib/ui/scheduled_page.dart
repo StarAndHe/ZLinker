@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 
+import '../state/device_session.dart';
 import '../state/device_store.dart';
 import '../state/scheduled_store.dart';
+import 'automations_page.dart';
 import 'theme.dart';
 import 'ui_settings.dart';
 
-/// Scheduled-message list (automation MVP). Adding needs devices; firing
-/// needs the native link on and the app alive at fire time.
+/// Combined scheduling hub: server-side device automations on top, local
+/// scheduled messages below (the two coexist — local send works offline,
+/// automations run on the desktop without the app).
 class ScheduledPage extends StatefulWidget {
   final DeviceStore devices;
+  final DeviceSessionHub hub;
   final ScheduledStore store;
   const ScheduledPage({
     super.key,
     required this.devices,
+    required this.hub,
     required this.store,
   });
 
@@ -21,10 +26,13 @@ class ScheduledPage extends StatefulWidget {
 }
 
 class _ScheduledPageState extends State<ScheduledPage> {
+  String? _autoDeviceId;
+
   @override
   void initState() {
     super.initState();
     widget.store.load();
+    widget.devices.load();
   }
 
   Future<void> _showAddSheet() async {
@@ -67,25 +75,106 @@ class _ScheduledPageState extends State<ScheduledPage> {
         label: Text(tr(context, 'sched.add')),
       ),
       body: AnimatedBuilder(
-        animation: Listenable.merge([widget.store, widget.devices]),
+        animation: Listenable.merge([widget.store, widget.devices, widget.hub]),
         builder: (context, _) {
           final items = widget.store.items;
-          if (items.isEmpty) {
-            return Center(
-              child: Text(
-                tr(context, 'sched.empty'),
-                style: TextStyle(color: ZInk.muted(context)),
-              ),
-            );
+          final devices =
+              widget.devices.devices.where((d) => d.params != null).toList();
+          if (_autoDeviceId == null ||
+              !devices.any((d) => d.id == _autoDeviceId)) {
+            _autoDeviceId = devices.isEmpty ? null : devices.first.id;
           }
-          return ListView.separated(
+          return ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (context, i) => _itemCard(items[i]),
+            children: [
+              _sectionHeader(context, tr(context, 'sched.section.server')),
+              const SizedBox(height: 8),
+              _serverSection(context, devices),
+              const SizedBox(height: 24),
+              _sectionHeader(
+                context,
+                tr(context, 'sched.section.local'),
+                trailing: Text(
+                  tr(context, 'sched.hint'),
+                  style:
+                      TextStyle(fontSize: 11, color: ZInk.ghost(context)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (items.isEmpty)
+                Text(tr(context, 'sched.empty'),
+                    style: TextStyle(color: ZInk.muted(context)))
+              else
+                for (final m in items) ...[
+                  _itemCard(m),
+                  const SizedBox(height: 8),
+                ],
+            ],
           );
         },
       ),
+    );
+  }
+
+  /// Listenable merge above covers store/devices/hub; locale rebuilds
+  /// arrive through the MaterialApp ancestor.
+
+  Widget _sectionHeader(BuildContext context, String text,
+      {Widget? trailing}) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: ZInk.muted(context)),
+          ),
+        ),
+        ?trailing,
+      ],
+    );
+  }
+
+  /// Device automations: device picker + the shared pane. The pane handles
+  /// its own unavailable/error/empty states (with local-send guidance).
+  Widget _serverSection(BuildContext context, List<Device> devices) {
+    if (devices.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text(tr(context, 'sched.noDevices'),
+              style: TextStyle(fontSize: 13, color: ZInk.muted(context))),
+        ),
+      );
+    }
+    final session = widget.hub.sessionOf(_autoDeviceId!);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<String>(
+          key: ValueKey('auto-device-$_autoDeviceId'),
+          initialValue: _autoDeviceId,
+          decoration: InputDecoration(
+            labelText: tr(context, 'sched.device'),
+            suffixIcon:
+                const Icon(Icons.desktop_windows_outlined, size: 18),
+          ),
+          items: [
+            for (final d in devices)
+              DropdownMenuItem(value: d.id, child: Text(d.label)),
+          ],
+          onChanged: (v) => setState(() => _autoDeviceId = v ?? _autoDeviceId),
+        ),
+        const SizedBox(height: 8),
+        AutomationsPane(
+          key: ValueKey('auto-pane-$_autoDeviceId'),
+          session: session,
+          compact: true,
+          onRetry: () => widget.hub.syncWith(widget.devices.devices),
+        ),
+      ],
     );
   }
 

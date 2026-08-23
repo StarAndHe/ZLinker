@@ -1,18 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// UI preferences: locale (zh-CN / en-US) and the native task-list switch.
+/// UI preferences: locale (zh-CN / en-US), the native task-list switch and
+/// the notification switches (master + per channel).
 class UiSettings extends ChangeNotifier {
   static const _localeKey = 'zremote_ui_locale';
   static const _nativeListKey = 'zremote_native_list';
+  static const _notifyKey = 'zremote_notify';
+  static const _notifyTasksKey = 'zremote_notify_tasks';
+  static const _notifyOffPeakKey = 'zremote_notify_offpeak';
+  static const _notifyAutoKey = 'zremote_notify_auto';
 
   String locale = 'zh-CN';
   bool nativeListEnabled = true;
+  bool notificationsEnabled = true;
+  bool notifyTasksEnabled = true;
+  bool notifyOffPeakEnabled = true;
+  bool notifyAutoEnabled = true;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     locale = prefs.getString(_localeKey) ?? 'zh-CN';
     nativeListEnabled = prefs.getBool(_nativeListKey) ?? true;
+    notificationsEnabled = prefs.getBool(_notifyKey) ?? true;
+    notifyTasksEnabled = prefs.getBool(_notifyTasksKey) ?? true;
+    notifyOffPeakEnabled = prefs.getBool(_notifyOffPeakKey) ?? true;
+    notifyAutoEnabled = prefs.getBool(_notifyAutoKey) ?? true;
     notifyListeners();
   }
 
@@ -28,6 +41,34 @@ class UiSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_nativeListKey, value);
+  }
+
+  Future<void> setNotificationsEnabled(bool value) async {
+    notificationsEnabled = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_notifyKey, value);
+  }
+
+  Future<void> setNotifyTasksEnabled(bool value) async {
+    notifyTasksEnabled = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_notifyTasksKey, value);
+  }
+
+  Future<void> setNotifyOffPeakEnabled(bool value) async {
+    notifyOffPeakEnabled = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_notifyOffPeakKey, value);
+  }
+
+  Future<void> setNotifyAutoEnabled(bool value) async {
+    notifyAutoEnabled = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_notifyAutoKey, value);
   }
 }
 
@@ -50,8 +91,12 @@ class UiSettingsProvider extends InheritedWidget {
 }
 
 /// Lightweight i18n lookup (single-file table scheme).
-String tr(BuildContext context, String key) {
-  final locale = UiSettingsProvider.of(context)?.locale ?? 'zh-CN';
+String tr(BuildContext context, String key) =>
+    trLocale(UiSettingsProvider.of(context)?.locale ?? 'zh-CN', key);
+
+/// Context-free lookup for surfaces without a BuildContext (push
+/// notifications render outside the widget tree).
+String trLocale(String locale, String key) {
   final table = locale.startsWith('en') ? _en : _zh;
   return table[key] ?? _zh[key] ?? key;
 }
@@ -153,6 +198,9 @@ const _zh = {
   'tasks.opFailed': '操作失败: \$0',
   'tasks.untitled': '未命名任务',
   'tasks.workspaces': '工作区',
+  'tasks.pickWorkspace': '选择工作区',
+  'tasks.noWorkspaces.title': '桌面端没有打开的工作区',
+  'tasks.noWorkspaces.body': '请先在桌面 ZCode 中打开一个项目，再回到这里重试',
   'tasks.deepLinking': '正在直达任务…',
   'phase.running': '运行中',
   'phase.prewarming': '预热中',
@@ -184,6 +232,7 @@ const _zh = {
   'about.github': 'GitHub 仓库',
   'about.licenses': '开源许可',
   'about.privacy': '隐私政策',
+  'about.tos': '服务条款',
   'about.disclaimer': 'ZRemote 是非官方的社区客户端，与 Zhipu AI 及 ZCode 无关联。',
   'usage.title': '使用统计',
   'usage.summary.devices': '设备数',
@@ -223,8 +272,11 @@ const _zh = {
   'providers.added': '已添加供应商',
   'providers.deleteTitle': '删除模型供应商？',
   'providers.deleteBody': '将删除「\$0」',
-  'sched.menu': '定时消息',
-  'sched.title': '定时消息',
+  'sched.menu': '定时与自动化',
+  'sched.title': '定时与自动化',
+  'sched.section.server': '设备自动化',
+  'sched.section.local': '本地定时发送',
+  'sched.openAuto': '管理设备自动化',
   'sched.add': '新建定时消息',
   'sched.empty': '暂无定时消息',
   'sched.noDevices': '请先添加可用设备',
@@ -236,6 +288,130 @@ const _zh = {
   'sched.sent': '已发送',
   'sched.failed': '失败',
   'sched.hint': '到点时需保持 App 在前台，且开启「原生任务列表」',
+  'tasks.menu.automations': '自动化',
+  'auto.title': '自动化',
+  'auto.subtitle': '由桌面端定时调度，无需 App 在线',
+  'auto.add': '新建自动化',
+  'auto.edit': '编辑自动化',
+  'auto.empty': '暂无自动化',
+  'auto.loading': '正在获取自动化列表…',
+  'auto.loadFailed': '加载失败: \$0',
+  'auto.unavailable.title': '设备自动化不可用',
+  'auto.unavailable.body':
+      '设备离线或协议握手未完成。可先用「本地定时发送」兜底，设备上线后再来管理。',
+  'auto.opFailed': '操作失败: \$0',
+  'auto.created': '已创建自动化',
+  'auto.saved': '已保存',
+  'auto.deleted': '已删除',
+  'auto.delete.title': '删除自动化？',
+  'auto.delete.body': '将删除「\$0」',
+  'auto.enabled': '已启用',
+  'auto.disabled': '已停用',
+  'auto.name': '标题',
+  'auto.prompt': '指令',
+  'auto.hint': '由桌面端调度进程定时触发，无需 App 在线',
+  'auto.trigger': '触发规则',
+  'auto.trigger.cron': 'Cron',
+  'auto.trigger.interval': '间隔重复',
+  'auto.trigger.oneShot': '一次性延迟',
+  'auto.cronExpr': 'Cron 表达式',
+  'auto.cronHint': '5 段式，如 0 9 * * 1-5 表示工作日每天 9 点',
+  'auto.interval': '间隔',
+  'auto.intervalUnit.label': '单位',
+  'auto.intervalUnit.minute': '分钟',
+  'auto.intervalUnit.hour': '小时',
+  'auto.intervalUnit.day': '天',
+  'auto.intervalUnit.week': '周',
+  'auto.intervalUnit.month': '月',
+  'auto.intervalUnit.year': '年',
+  'auto.recurring': '无限重复',
+  'auto.maxRuns': '最大运行次数',
+  'auto.maxRunsN': '最多 \$0 次',
+  'auto.delayMinutes': '延迟分钟数',
+  'auto.delayHint': '从创建时起延迟执行，最长 1 年',
+  'auto.model': '模型（可选）',
+  'auto.mode': '模式（可选）',
+  'auto.mode.default': '默认',
+  'auto.thoughtLevel': '思考等级（可选）',
+  'auto.targetTask': '绑定任务 ID（可选）',
+  'auto.advanced': '更多选项',
+  'auto.cronAt': '按 Cron \$0',
+  'auto.every': '每 \$0 \$1',
+  'auto.once': '一次性 · \$0后',
+  'auto.minutes': '\$0 分钟',
+  'auto.hours': '\$0 小时',
+  'auto.days': '\$0 天',
+  'auto.lastRun': '上次触发 \$0',
+  'auto.err.title': '请填写标题',
+  'auto.err.prompt': '请填写指令',
+  'auto.err.cron': '请填写 Cron 表达式',
+  'auto.err.interval': '间隔需为正整数',
+  'auto.err.delay': '延迟需在 1 分钟到 1 年之间',
+  'tasks.menu.offPeak': '闲时任务',
+  'op.title': '闲时任务',
+  'op.subtitle': '算力富余时段免费执行 · Coding Plan',
+  'op.hint': '提交后排队，在算力富余时段免费执行；需要 Coding Plan 订阅',
+  'op.add': '新建闲时任务',
+  'op.submit': '提交',
+  'op.empty': '暂无闲时任务',
+  'op.loading': '正在获取闲时任务…',
+  'op.loadFailed': '加载失败: \$0',
+  'op.unavailable.title': '闲时任务不可用',
+  'op.unavailable.body': '设备离线或协议握手未完成，稍后再试。',
+  'op.name': '标题',
+  'op.prompt': '指令',
+  'op.model': '模型（可选）',
+  'op.earliestAt': '最早可用时间（可选）',
+  'op.earliest.any': '不限，排队后尽快',
+  'op.keepAwake': '保持唤醒',
+  'op.keepAwakeHint': '保持与设备的连接，以便及时收到结果',
+  'op.permission': '权限模式',
+  'op.permission.build': 'build',
+  'op.permission.plan': 'plan',
+  'op.permission.yolo': 'yolo',
+  'op.tpl.ci.title': 'CI flaky 报告',
+  'op.tpl.ci.prompt': '分析最近的 CI 失败，找出 flaky 测试并输出报告',
+  'op.tpl.docs.title': '文档同步检查',
+  'op.tpl.docs.prompt': '检查最近代码变更涉及的文档是否需要同步更新，列出过期条目',
+  'op.tpl.standup.title': '站会 git 总结',
+  'op.tpl.standup.prompt': '总结昨天的 git 提交，生成站会汇报要点',
+  'op.created': '已提交闲时任务',
+  'op.quota': '剩余额度 \$0',
+  'op.earliest': '最早可用 \$0',
+  'op.minutes': '\$0 分钟',
+  'op.hours': '\$0 小时',
+  'op.duration': '用时 \$0',
+  'op.queue': '排队中 #\$0',
+  'op.status.queued': '排队中',
+  'op.status.running': '执行中',
+  'op.status.paused': '已暂停',
+  'op.status.completed': '已完成',
+  'op.status.failed': '失败',
+  'op.status.cancelled': '已取消',
+  'op.viewResult': '查看结果',
+  'op.cancel': '取消任务',
+  'op.deleteTitle': '删除闲时任务？',
+  'op.deleteBody': '将从历史中移除「\$0」',
+  'op.section.active': '进行中',
+  'op.section.history': '历史',
+  'op.err.prompt': '请填写指令',
+  'op.err.noWorkspace': '该设备没有打开的工作区',
+  'op.err.codingPlanOnly': '闲时任务仅 Coding Plan 订阅可用',
+  'op.err.quota': '本月闲时额度已用尽',
+  'op.err.unavailable': '闲时任务服务暂不可用',
+  'op.err.other': '操作失败: \$0',
+  'settings.notifications': '通知',
+  'settings.notificationsHint': '任务完成/失败、闲时结果与自动化触发推送到本机',
+  'settings.notify.tasks': '任务事件',
+  'settings.notify.offPeak': '闲时事件',
+  'settings.notify.auto': '自动化结果',
+  'notify.task.done': '任务完成',
+  'notify.task.failed': '任务失败',
+  'notify.task.interrupted': '任务已中断',
+  'notify.offPeak.done': '闲时任务完成',
+  'notify.offPeak.failed': '闲时任务失败',
+  'notify.auto.done': '自动化触发成功',
+  'notify.auto.failed': '自动化触发失败',
   'settings.checkUpdate': '检查更新',
   'update.latest': '已是最新版本',
   'update.newVersion': '发现新版本 v\$0',
@@ -317,6 +493,10 @@ const _en = {
   'tasks.opFailed': 'Operation failed: \$0',
   'tasks.untitled': 'Untitled task',
   'tasks.workspaces': 'Workspace',
+  'tasks.pickWorkspace': 'Choose a workspace',
+  'tasks.noWorkspaces.title': 'No open workspace on the desktop',
+  'tasks.noWorkspaces.body':
+      'Open a project in ZCode desktop first, then retry here',
   'tasks.deepLinking': 'Jumping to the task…',
   'phase.running': 'Running',
   'phase.prewarming': 'Prewarming',
@@ -349,6 +529,7 @@ const _en = {
   'about.github': 'GitHub repository',
   'about.licenses': 'Open-source licenses',
   'about.privacy': 'Privacy policy',
+  'about.tos': 'Terms of Service',
   'about.disclaimer':
       'ZRemote is an unofficial community client, not affiliated with Zhipu AI or ZCode.',
   'usage.title': 'Usage statistics',
@@ -389,8 +570,11 @@ const _en = {
   'providers.added': 'Provider added',
   'providers.deleteTitle': 'Delete model provider?',
   'providers.deleteBody': 'This deletes "\$0".',
-  'sched.menu': 'Scheduled messages',
-  'sched.title': 'Scheduled messages',
+  'sched.menu': 'Scheduled & automations',
+  'sched.title': 'Scheduled & automations',
+  'sched.section.server': 'Device automations',
+  'sched.section.local': 'Local scheduled messages',
+  'sched.openAuto': 'Manage device automations',
   'sched.add': 'New message',
   'sched.empty': 'No scheduled messages',
   'sched.noDevices': 'Add a device first',
@@ -403,6 +587,138 @@ const _en = {
   'sched.failed': 'Failed',
   'sched.hint':
       'Keep the app in the foreground at fire time, with the native task list enabled',
+  'tasks.menu.automations': 'Automations',
+  'auto.title': 'Automations',
+  'auto.subtitle': 'Scheduled by the desktop — the app can be offline',
+  'auto.add': 'New automation',
+  'auto.edit': 'Edit automation',
+  'auto.empty': 'No automations yet',
+  'auto.loading': 'Loading automations…',
+  'auto.loadFailed': 'Load failed: \$0',
+  'auto.unavailable.title': 'Device automations unavailable',
+  'auto.unavailable.body':
+      'The device is offline or the protocol handshake is unfinished. Use "local scheduled messages" as a fallback and manage automations once the device is back.',
+  'auto.opFailed': 'Operation failed: \$0',
+  'auto.created': 'Automation created',
+  'auto.saved': 'Saved',
+  'auto.deleted': 'Deleted',
+  'auto.delete.title': 'Delete automation?',
+  'auto.delete.body': 'This deletes "\$0".',
+  'auto.enabled': 'Enabled',
+  'auto.disabled': 'Disabled',
+  'auto.name': 'Title',
+  'auto.prompt': 'Instruction',
+  'auto.hint': 'Triggered by the desktop scheduler; no need to keep the app online',
+  'auto.trigger': 'Trigger rule',
+  'auto.trigger.cron': 'Cron',
+  'auto.trigger.interval': 'Interval',
+  'auto.trigger.oneShot': 'One-shot',
+  'auto.cronExpr': 'Cron expression',
+  'auto.cronHint': '5 fields, e.g. 0 9 * * 1-5 for weekdays at 9',
+  'auto.interval': 'Every',
+  'auto.intervalUnit.label': 'Unit',
+  'auto.intervalUnit.minute': 'minute(s)',
+  'auto.intervalUnit.hour': 'hour(s)',
+  'auto.intervalUnit.day': 'day(s)',
+  'auto.intervalUnit.week': 'week(s)',
+  'auto.intervalUnit.month': 'month(s)',
+  'auto.intervalUnit.year': 'year(s)',
+  'auto.recurring': 'Repeat forever',
+  'auto.maxRuns': 'Max runs',
+  'auto.maxRunsN': 'max \$0 runs',
+  'auto.delayMinutes': 'Delay (minutes)',
+  'auto.delayHint': 'Delayed from creation, up to 1 year',
+  'auto.model': 'Model (optional)',
+  'auto.mode': 'Mode (optional)',
+  'auto.mode.default': 'Default',
+  'auto.thoughtLevel': 'Thought level (optional)',
+  'auto.targetTask': 'Target task ID (optional)',
+  'auto.advanced': 'More options',
+  'auto.cronAt': 'Cron \$0',
+  'auto.every': 'Every \$0 \$1',
+  'auto.once': 'One-shot · after \$0',
+  'auto.minutes': '\$0 min',
+  'auto.hours': '\$0 h',
+  'auto.days': '\$0 d',
+  'auto.lastRun': 'Last run \$0',
+  'auto.err.title': 'Title is required',
+  'auto.err.prompt': 'Instruction is required',
+  'auto.err.cron': 'Cron expression is required',
+  'auto.err.interval': 'Interval must be a positive integer',
+  'auto.err.delay': 'Delay must be between 1 minute and 1 year',
+  'tasks.menu.offPeak': 'Off-peak tasks',
+  'op.title': 'Off-peak tasks',
+  'op.subtitle': 'Free runs in compute-rich windows · Coding Plan',
+  'op.hint':
+      'Queued after submitting, executed free in compute-rich windows; requires a Coding Plan subscription',
+  'op.add': 'New off-peak task',
+  'op.submit': 'Submit',
+  'op.empty': 'No off-peak tasks yet',
+  'op.loading': 'Loading off-peak tasks…',
+  'op.loadFailed': 'Load failed: \$0',
+  'op.unavailable.title': 'Off-peak tasks unavailable',
+  'op.unavailable.body':
+      'The device is offline or the protocol handshake is unfinished; try again later.',
+  'op.name': 'Title',
+  'op.prompt': 'Instruction',
+  'op.model': 'Model (optional)',
+  'op.earliestAt': 'Earliest available (optional)',
+  'op.earliest.any': 'Any — run as soon as queued',
+  'op.keepAwake': 'Keep awake',
+  'op.keepAwakeHint':
+      'Keep the device connection alive so results arrive promptly',
+  'op.permission': 'Permission mode',
+  'op.permission.build': 'build',
+  'op.permission.plan': 'plan',
+  'op.permission.yolo': 'yolo',
+  'op.tpl.ci.title': 'CI flaky report',
+  'op.tpl.ci.prompt':
+      'Analyze recent CI failures, identify flaky tests and write a report',
+  'op.tpl.docs.title': 'Docs sync check',
+  'op.tpl.docs.prompt':
+      'Check whether docs touched by recent code changes need updating and list stale entries',
+  'op.tpl.standup.title': 'Standup git summary',
+  'op.tpl.standup.prompt':
+      'Summarize yesterday\'s git commits into standup notes',
+  'op.created': 'Off-peak task submitted',
+  'op.quota': '\$0 quota left',
+  'op.earliest': 'Earliest \$0',
+  'op.minutes': '\$0 min',
+  'op.hours': '\$0 h',
+  'op.duration': 'Took \$0',
+  'op.queue': 'Queued #\$0',
+  'op.status.queued': 'Queued',
+  'op.status.running': 'Running',
+  'op.status.paused': 'Paused',
+  'op.status.completed': 'Completed',
+  'op.status.failed': 'Failed',
+  'op.status.cancelled': 'Cancelled',
+  'op.viewResult': 'View result',
+  'op.cancel': 'Cancel task',
+  'op.deleteTitle': 'Delete off-peak task?',
+  'op.deleteBody': 'This removes "\$0" from history.',
+  'op.section.active': 'Active',
+  'op.section.history': 'History',
+  'op.err.prompt': 'Instruction is required',
+  'op.err.noWorkspace': 'No open workspace on this device',
+  'op.err.codingPlanOnly':
+      'Off-peak tasks require a Coding Plan subscription',
+  'op.err.quota': 'Monthly off-peak quota is used up',
+  'op.err.unavailable': 'Off-peak service is temporarily unavailable',
+  'op.err.other': 'Operation failed: \$0',
+  'settings.notifications': 'Notifications',
+  'settings.notificationsHint':
+      'Task completions, off-peak results and automation runs pushed locally',
+  'settings.notify.tasks': 'Task events',
+  'settings.notify.offPeak': 'Off-peak events',
+  'settings.notify.auto': 'Automation results',
+  'notify.task.done': 'Task completed',
+  'notify.task.failed': 'Task failed',
+  'notify.task.interrupted': 'Task interrupted',
+  'notify.offPeak.done': 'Off-peak task completed',
+  'notify.offPeak.failed': 'Off-peak task failed',
+  'notify.auto.done': 'Automation triggered',
+  'notify.auto.failed': 'Automation run failed',
   'settings.checkUpdate': 'Check for updates',
   'update.latest': 'Up to date',
   'update.newVersion': 'New version v\$0',

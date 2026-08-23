@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import '../protocol/conversation.dart';
 import '../state/device_session.dart';
 import '../state/device_store.dart';
+import 'automations_page.dart';
 import 'device_usage_page.dart';
 import 'model_providers_page.dart';
+import 'off_peak_page.dart';
 import 'remote_page.dart';
 import 'theme.dart';
 import 'ui_settings.dart';
@@ -79,19 +81,54 @@ class _TaskListPageState extends State<TaskListPage> {
           PopupMenuButton<String>(
             onSelected: (v) {
               final session = _session;
-              if (session == null) return;
               switch (v) {
                 case 'usage':
+                  if (session == null) return;
                   Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => DeviceUsagePage(session: session),
                   ));
                 case 'providers':
+                  if (session == null) return;
                   Navigator.of(context).push(MaterialPageRoute(
                     builder: (_) => ModelProvidersPage(session: session),
+                  ));
+                case 'automations':
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => AutomationsPage(
+                      store: widget.store,
+                      hub: widget.hub,
+                      initialDeviceId: widget.device.id,
+                    ),
+                  ));
+                case 'offPeak':
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => OffPeakPage(
+                      store: widget.store,
+                      hub: widget.hub,
+                      device: widget.device,
+                    ),
                   ));
               }
             },
             itemBuilder: (c) => [
+              PopupMenuItem(
+                  value: 'automations',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.schedule_outlined, size: 18),
+                      const SizedBox(width: 8),
+                      Text(tr(context, 'tasks.menu.automations')),
+                    ],
+                  )),
+              PopupMenuItem(
+                  value: 'offPeak',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.nights_stay_outlined, size: 18),
+                      const SizedBox(width: 8),
+                      Text(tr(context, 'tasks.menu.offPeak')),
+                    ],
+                  )),
               PopupMenuItem(
                   value: 'usage', child: Text(tr(context, 'tasks.menu.usage'))),
               PopupMenuItem(
@@ -109,31 +146,38 @@ class _TaskListPageState extends State<TaskListPage> {
         animation: widget.hub,
         builder: (context, _) {
           final session = _session;
-          final sessions = session?.sessions;
-          if (session == null ||
-              session.status == DeviceStatus.error ||
-              sessions == null) {
-            return _fallback(context, session);
+          if (session != null) {
+            final sessions = session.sessions;
+            if (sessions != null) {
+              if (!sessions.ready) return _loadingView(context);
+              final list = sessions.list;
+              if (list.isEmpty) {
+                return Center(
+                  child: Text(tr(context, 'tasks.empty'),
+                      style: TextStyle(color: ZInk.muted(context))),
+                );
+              }
+              return RefreshIndicator(
+                onRefresh: () => session.reloadTasks(),
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                  itemCount: list.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (context, i) => _taskCard(list[i], session),
+                ),
+              );
+            }
           }
-          final list = sessions.list;
-          if (list.isEmpty) {
-            return Center(
-              child: Text(tr(context, 'tasks.empty'),
-                  style: TextStyle(color: ZInk.muted(context))),
-            );
-          }
-          return RefreshIndicator(
-            onRefresh: () async {
-              final ws = session.activeWorkspace;
-              if (ws != null) await session.openWorkspace(ws);
-            },
-            child: ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-              itemCount: list.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (context, i) => _taskCard(list[i], session),
-            ),
-          );
+          // No live sessions-index: spinner only while the connection or
+          // the workspace open is actually in flight — otherwise show the
+          // real reason with retry / workspace picker / web fallback.
+          final connecting = session != null &&
+              session.status != DeviceStatus.error &&
+              session.status != DeviceStatus.disconnected &&
+              (session.status == DeviceStatus.connecting ||
+                  session.openingWorkspace);
+          if (connecting) return _loadingView(context);
+          return _fallback(context, session);
         },
       ),
     );
@@ -182,24 +226,35 @@ class _TaskListPageState extends State<TaskListPage> {
     );
   }
 
+  Widget _loadingView(BuildContext context) => Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(),
+            const SizedBox(height: 16),
+            Text(tr(context, 'tasks.loading'),
+                style: TextStyle(fontSize: 13, color: ZInk.faint(context))),
+          ],
+        ),
+      );
+
   Widget _fallback(BuildContext context, DeviceSession? session) {
-    final connecting = session != null &&
-        session.status != DeviceStatus.error &&
-        session.status != DeviceStatus.disconnected;
+    final workspaces = session?.workspaces ?? const [];
+    final error = session?.error;
+    final noWorkspaces = session != null &&
+        session.status == DeviceStatus.connected &&
+        workspaces.isEmpty;
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (connecting)
-              const CircularProgressIndicator()
-            else
-              Icon(Icons.cloud_off, size: 44, color: ZInk.ghost(context)),
+            Icon(Icons.cloud_off, size: 44, color: ZInk.ghost(context)),
             const SizedBox(height: 16),
             Text(
-              connecting
-                  ? tr(context, 'tasks.loading')
+              noWorkspaces
+                  ? tr(context, 'tasks.noWorkspaces.title')
                   : tr(context, 'tasks.fallback.title'),
               style: TextStyle(
                   fontSize: 15,
@@ -208,22 +263,53 @@ class _TaskListPageState extends State<TaskListPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              connecting ? '' : tr(context, 'tasks.fallback.body'),
+              error ??
+                  tr(context,
+                      noWorkspaces ? 'tasks.noWorkspaces.body' : 'tasks.fallback.body'),
               textAlign: TextAlign.center,
+              maxLines: 5,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 13, color: ZInk.faint(context)),
             ),
-            const SizedBox(height: 20),
-            if (!connecting) ...[
-              FilledButton(
-                onPressed: () => _openRemote(),
-                child: Text(tr(context, 'tasks.openWeb')),
+            if (workspaces.length > 1) ...[
+              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(tr(context, 'tasks.pickWorkspace'),
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: ZInk.muted(context))),
               ),
               const SizedBox(height: 8),
-              TextButton(
-                onPressed: () => session?.connect(),
-                child: Text(tr(context, 'tasks.retry')),
-              ),
+              for (final ws in workspaces)
+                Card(
+                  child: ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.folder_outlined, size: 20),
+                    title: Text(workspaceTitle(ws),
+                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                    onTap: () => session?.openWorkspace(ws),
+                  ),
+                ),
             ],
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: () => _openRemote(),
+              child: Text(tr(context, 'tasks.openWeb')),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () {
+                final s = _session;
+                if (s != null) {
+                  s.reloadTasks();
+                } else {
+                  widget.hub.ensure(widget.device);
+                }
+              },
+              child: Text(tr(context, 'tasks.retry')),
+            ),
           ],
         ),
       ),
