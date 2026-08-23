@@ -74,6 +74,11 @@ class _TaskListPageState extends State<TaskListPage> {
   }
 
   Widget _buildMobile(BuildContext context) {
+    final session = _session;
+    final online = session != null &&
+        session.status == DeviceStatus.connected &&
+        !session.kicked &&
+        (session.error?.isEmpty ?? true);
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -81,25 +86,42 @@ class _TaskListPageState extends State<TaskListPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(widget.device.label,
+            Text(tr(context, 'tasks.banner.onlineTitle'),
                 style: const TextStyle(
                     fontSize: 16, fontWeight: FontWeight.w600)),
-            Text(tr(context, 'tasks.title'),
-                style:
-                    TextStyle(fontSize: 11, color: ZInk.faint(context))),
+            Text(
+              online
+                  ? tr(context, 'tasks.banner.onlineSubtitle')
+                  : widget.device.label,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: online
+                    ? ZColors.pillSuccessBg
+                    : ZInk.faint(context),
+              ),
+            ),
           ],
         ),
         actions: [
-          _workspacePicker(),
+          if (widget.theme != null)
+            IconButton(
+              tooltip: tr(context, 'settings.theme'),
+              icon: Icon(switch (widget.theme!.mode) {
+                ThemeMode.dark => Icons.palette_outlined,
+                ThemeMode.light => Icons.palette_outlined,
+                _ => Icons.palette_outlined,
+              }, size: 20),
+              onPressed: widget.theme!.cycle,
+            ),
           _overflowMenu(),
         ],
       ),
-      body: _listBody(context, compact: false),
+      body: _listBody(context),
     );
   }
 
-  /// Official desktop layout: a 264px sidebar with its own slim header, a
-  /// 1px divider, then the chat pane side by side.
+  /// Official desktop layout (≥768): IDE-style sidebar (新建/搜索/项目树)
+  /// + 1px divider + rounded chat pane — not a shrunk mobile card list.
   Widget _buildDualPane(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
@@ -112,16 +134,10 @@ class _TaskListPageState extends State<TaskListPage> {
             width: kSidebarWidth,
             child: ColoredBox(
               color: isDark ? ZColors.darkSidebar : ZColors.lightSidebar,
-              child: Column(
-                children: [
-                  _sidebarHeader(context),
-                  Expanded(child: _listBody(context, compact: true)),
-                ],
-              ),
+              child: _desktopSidebar(context),
             ),
           ),
-          VerticalDivider(
-              width: 1, thickness: 1, color: ZInk.hairline(context)),
+          Container(width: 1, color: const Color(0xFF333333)),
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(0, 8, 8, 8),
@@ -148,30 +164,278 @@ class _TaskListPageState extends State<TaskListPage> {
     );
   }
 
-  /// Desktop sidebar header: back + device label + overflow menu (official
-  /// sidebar top row parity).
-  Widget _sidebarHeader(BuildContext context) {
-    return SizedBox(
-      height: 48,
-      child: Row(
-        children: [
-          IconButton(
-            tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-            icon: const Icon(Icons.arrow_back, size: 20),
-            color: ZInk.muted(context),
-            onPressed: () => Navigator.of(context).maybePop(),
-          ),
-          Expanded(
-            child: Text(widget.device.label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+  /// Official IDE sidebar: nav actions → projects tree → device footer.
+  Widget _desktopSidebar(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.hub,
+      builder: (context, _) {
+        final session = _session;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              height: 44,
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip:
+                        MaterialLocalizations.of(context).backButtonTooltip,
+                    icon: const Icon(Icons.arrow_back, size: 18),
+                    color: ZInk.muted(context),
+                    onPressed: () => Navigator.of(context).maybePop(),
+                  ),
+                  Expanded(
+                    child: Text(widget.device.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: ZInk.solid(context))),
+                  ),
+                  _overflowMenu(),
+                ],
+              ),
+            ),
+            _sidebarNavItem(
+              context,
+              icon: Icons.add,
+              label: tr(context, 'tasks.sidebar.new'),
+              shortcut: 'Ctrl+N',
+              onTap: () => _openChat(title: tr(context, 'tasks.new')),
+            ),
+            _sidebarNavItem(
+              context,
+              icon: Icons.search,
+              label: tr(context, 'tasks.search'),
+              shortcut: 'Ctrl+K',
+              onTap: () => _openCommandSearch(),
+            ),
+            const SizedBox(height: 8),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 4, 8, 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(tr(context, 'tasks.projects'),
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: ZInk.faint(context))),
+                  ),
+                  IconButton(
+                    tooltip: _collapsed
+                        ? tr(context, 'tasks.expandAll')
+                        : tr(context, 'tasks.collapseAll'),
+                    icon: Icon(
+                      _collapsed
+                          ? Icons.unfold_more_outlined
+                          : Icons.unfold_less_outlined,
+                      size: 16,
+                    ),
+                    color: ZInk.muted(context),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => setState(() {
+                      _collapsed = !_collapsed;
+                      if (_collapsed) _manualExpand.clear();
+                    }),
+                  ),
+                  IconButton(
+                    tooltip: tr(context, 'tasks.retry'),
+                    icon: const Icon(Icons.refresh, size: 16),
+                    color: ZInk.muted(context),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () {
+                      final s = _session;
+                      if (s != null) {
+                        s.reloadTasks();
+                      } else {
+                        widget.hub.ensure(widget.device);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: session == null || session.workspaces.isEmpty
+                  ? _fallback(context, session)
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(6, 0, 6, 16),
+                      children: [
+                        ..._desktopPinned(context, session),
+                        for (final ws in session.workspaces)
+                          _desktopWorkspaceFolder(context, session, ws),
+                      ],
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _sidebarNavItem(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required String shortcut,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Row(
+          children: [
+            Icon(icon, size: 16, color: ZInk.muted(context)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(label,
+                  style: TextStyle(
+                      fontSize: 13.5, color: ZInk.soft(context))),
+            ),
+            Text(shortcut,
                 style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: ZInk.solid(context))),
+                    fontSize: 11, color: ZInk.ghost(context))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _desktopPinned(BuildContext context, DeviceSession session) {
+    final entries = session.sessions?.list
+            .where((e) => e.raw['pinned'] == true)
+            .toList() ??
+        const <SessionEntry>[];
+    if (entries.isEmpty) return const [];
+    return [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+        child: Text(tr(context, 'tasks.pinned'),
+            style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w500,
+                color: ZInk.ghost(context))),
+      ),
+      for (final e in entries)
+        _desktopTaskRow(context, e, selected: e.sessionId == _paneSessionId),
+    ];
+  }
+
+  Widget _desktopWorkspaceFolder(
+      BuildContext context, DeviceSession session, Map<String, dynamic> ws) {
+    final isActive = identical(session.activeWorkspace, ws) ||
+        workspaceKeyOf(ws) ==
+            workspaceKeyOf(session.activeWorkspace ?? const {});
+    final key = workspaceKeyOf(ws) ?? workspaceTitle(ws);
+    var expanded = !_collapsed || _manualExpand.contains(key);
+    if (!isActive) expanded = expanded && _manualExpand.contains(key);
+    final sessions = isActive ? session.sessions : null;
+    final entries =
+        sessions?.ready == true ? sessions!.list : const <SessionEntry>[];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () {
+            if (!isActive) session.openWorkspace(ws);
+            setState(() {
+              if (expanded) {
+                _manualExpand.remove(key);
+              } else {
+                _manualExpand.add(key);
+              }
+              if (!isActive) _manualExpand.add(key);
+            });
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              children: [
+                Icon(
+                  expanded
+                      ? Icons.keyboard_arrow_down
+                      : Icons.keyboard_arrow_right,
+                  size: 16,
+                  color: ZInk.ghost(context),
+                ),
+                const SizedBox(width: 2),
+                Icon(Icons.folder_outlined,
+                    size: 15, color: ZInk.muted(context)),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(workspaceTitle(ws),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: ZInk.soft(context))),
+                ),
+                if (isActive)
+                  Text('${entries.length}',
+                      style: TextStyle(
+                          fontSize: 11, color: ZInk.ghost(context))),
+              ],
+            ),
           ),
-          _overflowMenu(),
-        ],
+        ),
+        if (expanded && isActive)
+          for (final e in entries)
+            _desktopTaskRow(context, e,
+                selected: e.sessionId == _paneSessionId, indent: true),
+      ],
+    );
+  }
+
+  Widget _desktopTaskRow(BuildContext context, SessionEntry entry,
+      {bool selected = false, bool indent = false}) {
+    final title = entry.title.trim().isEmpty
+        ? tr(context, 'tasks.untitled')
+        : entry.title;
+    return Padding(
+      padding: EdgeInsets.only(left: indent ? 12 : 0),
+      child: Material(
+        color: selected
+            ? Colors.white.withValues(alpha: 0.1)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => _openChat(sessionId: entry.sessionId, title: title),
+          onLongPress: () {
+            final s = _session;
+            if (s != null) _taskActions(context, s, entry);
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 13,
+                          fontWeight:
+                              selected ? FontWeight.w500 : FontWeight.w400,
+                          color: ZInk.solid(context))),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  relativeTimeShort(context, entry.lastActivityAt),
+                  style: TextStyle(
+                      fontSize: 11, color: ZInk.ghost(context)),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -195,6 +459,99 @@ class _TaskListPageState extends State<TaskListPage> {
       theme: widget.theme,
       embedded: true,
       initialComposerText: _paneInitialComposerText,
+      workspaceLabel: session.activeWorkspace != null
+          ? workspaceTitle(session.activeWorkspace!)
+          : null,
+    );
+  }
+
+  Future<void> _openCommandSearch() async {
+    final session = _session;
+    if (session == null || session.status != DeviceStatus.connected) return;
+    WorkspacePrep? prep;
+    try {
+      prep = await session.prepareWorkspace();
+    } catch (_) {}
+    if (!mounted) return;
+    final commands = prep?.slashCommands ?? const <SlashCommand>[];
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetCtx) {
+        final query = ValueNotifier('');
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.viewInsetsOf(sheetCtx).bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: TextField(
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: tr(sheetCtx, 'tasks.commandSearch'),
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                    ),
+                    onChanged: (v) => query.value = v,
+                  ),
+                ),
+                Flexible(
+                  child: ValueListenableBuilder<String>(
+                    valueListenable: query,
+                    builder: (context, q, _) {
+                      final needle = q.trim().toLowerCase();
+                      final filtered = commands.where((c) {
+                        if (needle.isEmpty) return true;
+                        return c.name.toLowerCase().contains(needle) ||
+                            c.description.toLowerCase().contains(needle);
+                      }).toList();
+                      if (filtered.isEmpty) {
+                        return Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(
+                            tr(sheetCtx, 'tasks.commandSearch.empty'),
+                            style: TextStyle(
+                                fontSize: 13, color: ZInk.faint(sheetCtx)),
+                          ),
+                        );
+                      }
+                      return ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: filtered.length,
+                        itemBuilder: (_, i) {
+                          final c = filtered[i];
+                          final label = c.name.startsWith('/')
+                              ? c.name
+                              : '/${c.name}';
+                          return ListTile(
+                            title: Text(label),
+                            subtitle: c.description.isNotEmpty
+                                ? Text(c.description,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis)
+                                : null,
+                            onTap: () {
+                              Navigator.of(sheetCtx).pop();
+                              _openChat(
+                                title: tr(this.context, 'tasks.new'),
+                                initialComposerText: label,
+                              );
+                            },
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -238,39 +595,21 @@ class _TaskListPageState extends State<TaskListPage> {
     );
   }
 
-  Widget _listBody(BuildContext context, {required bool compact}) {
+  Widget _listBody(BuildContext context) {
     return AnimatedBuilder(
       animation: widget.hub,
       builder: (context, _) {
         final session = _session;
         final banner = _ConnectionBanner(session: session, onWeb: _openRemote);
-        final bannerOnline = session != null &&
-            session.status == DeviceStatus.connected &&
-            !session.kicked &&
-            (session.error?.isEmpty ?? true);
-        // The desktop sidebar skips the healthy status card (official
-        // sidebar has none); degraded states still surface there.
-        final showBanner = !compact || !bannerOnline;
         return RefreshIndicator(
           onRefresh: () async =>
               session?.reloadTasks() ?? widget.hub.ensure(widget.device),
           child: ListView(
-            padding: EdgeInsets.fromLTRB(compact ? 8 : 12, 12, compact ? 8 : 12, 32),
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 32),
             children: [
-              _CommandSearchBar(
-                session: session,
-                compact: compact,
-                onPick: (cmd) => _openChat(
-                  title: tr(context, 'tasks.new'),
-                  initialComposerText: cmd,
-                ),
-              ),
+              banner,
               const SizedBox(height: 12),
-              if (showBanner) ...[
-                banner,
-                const SizedBox(height: 12),
-              ],
-              _headerRow(context, session, compact),
+              _headerRow(context, session),
               const SizedBox(height: 12),
               if (session != null) ..._pinnedGroup(context, session),
               if (session == null || session.workspaces.isEmpty)
@@ -279,7 +618,7 @@ class _TaskListPageState extends State<TaskListPage> {
                 for (final ws in session.workspaces)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
-                    child: _workspaceCard(context, session, ws, compact),
+                    child: _workspaceCard(context, session, ws),
                   ),
             ],
           ),
@@ -288,10 +627,8 @@ class _TaskListPageState extends State<TaskListPage> {
     );
   }
 
-  /// The official page always shows the connection status card at the top,
-  /// even when the link is healthy (green online state + explanation).
-  /// [compact] is the 264px desktop sidebar: smaller type, tighter icons.
-  Widget _headerRow(BuildContext context, DeviceSession? session, bool compact) {
+  /// Official section header + collapse / tidy / refresh.
+  Widget _headerRow(BuildContext context, DeviceSession? session) {
     final workspaces = session?.workspaces.length ?? 0;
     final tasks = session?.sessions?.list.length ?? 0;
     return Row(
@@ -303,17 +640,15 @@ class _TaskListPageState extends State<TaskListPage> {
               Text(tr(context, 'tasks.sectionTitle'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: compact ? 14 : 16,
-                      fontWeight: FontWeight.w600)),
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w600)),
               const SizedBox(height: 2),
               Text(
                 trP(context, 'tasks.stats', ['$workspaces', '$tasks']),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                    fontSize: compact ? 11.5 : 12.5,
-                    color: ZInk.faint(context)),
+                    fontSize: 12.5, color: ZInk.faint(context)),
               ),
             ],
           ),
@@ -357,10 +692,8 @@ class _TaskListPageState extends State<TaskListPage> {
           IconButton(
             tooltip: b.$1,
             icon: Icon(b.$2),
-            iconSize: compact ? 18 : 20,
+            iconSize: 20,
             color: b.$3,
-            visualDensity:
-                compact ? VisualDensity.compact : VisualDensity.standard,
             onPressed: b.$4,
           ),
       ],
@@ -400,7 +733,7 @@ class _TaskListPageState extends State<TaskListPage> {
     final ws = _session?.activeWorkspace;
     final subtitle = [
       if (ws != null) workspaceTitle(ws),
-      relativeTime(context, entry.lastActivityAt),
+      relativeTimeShort(context, entry.lastActivityAt),
     ].join(' · ');
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -447,10 +780,8 @@ class _TaskListPageState extends State<TaskListPage> {
 
   /// One workspace card: name + 本地 badge, folder + path, updated-at, task
   /// count + chevron + new-task button; expanded shows the task rows.
-  /// [compact] is the 264px desktop sidebar density.
   Widget _workspaceCard(
-      BuildContext context, DeviceSession session, Map<String, dynamic> ws,
-      [bool compact = false]) {
+      BuildContext context, DeviceSession session, Map<String, dynamic> ws) {
     final isActive = identical(session.activeWorkspace, ws) ||
         workspaceKeyOf(ws) == workspaceKeyOf(session.activeWorkspace ?? const {});
     final key = workspaceKeyOf(ws) ?? workspaceTitle(ws);
@@ -503,8 +834,7 @@ class _TaskListPageState extends State<TaskListPage> {
               });
             },
             child: Padding(
-              padding: EdgeInsets.symmetric(
-                  horizontal: compact ? 12 : 16, vertical: compact ? 10 : 14),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
                 children: [
                   Expanded(
@@ -547,7 +877,7 @@ class _TaskListPageState extends State<TaskListPage> {
                           const SizedBox(height: 2),
                           Text(
                             trP(context, 'tasks.updatedAt',
-                                [relativeTime(context, lastActivity)]),
+                                [relativeTimeShort(context, lastActivity)]),
                             style: TextStyle(
                                 fontSize: 11, color: ZInk.ghost(context)),
                           ),
@@ -597,8 +927,7 @@ class _TaskListPageState extends State<TaskListPage> {
               for (var i = 0; i < entries.length; i++)
                 _taskRow(context, session, entries[i],
                     highlight: current != null &&
-                        entries[i].sessionId == current.sessionId,
-                    compact: compact),
+                        entries[i].sessionId == current.sessionId),
           ],
         ],
       ),
@@ -653,13 +982,13 @@ class _TaskListPageState extends State<TaskListPage> {
   /// rounded white/10 highlight.
   Widget _taskRow(
       BuildContext context, DeviceSession session, SessionEntry entry,
-      {bool highlight = false, bool compact = false}) {
+      {bool highlight = false}) {
     final (phaseLabel, _) = _phaseVisual(entry.phase);
     final title = entry.title.trim().isEmpty
         ? tr(context, 'tasks.untitled')
         : entry.title;
     return Padding(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 8, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
       child: Material(
         color: highlight
             ? Colors.white.withValues(alpha: 0.1)
@@ -673,9 +1002,9 @@ class _TaskListPageState extends State<TaskListPage> {
           ),
           onLongPress: () => _taskActions(context, session, entry),
           child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: compact ? 54 : 62),
+            constraints: const BoxConstraints(minHeight: 62),
             child: Padding(
-            padding: EdgeInsets.fromLTRB(10, compact ? 7 : 12, 10, compact ? 7 : 12),
+            padding: const EdgeInsets.fromLTRB(10, 12, 10, 12),
             child: Row(
               children: [
                 Expanded(
@@ -685,15 +1014,13 @@ class _TaskListPageState extends State<TaskListPage> {
                       Text(title,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: compact ? 14 : 14.5,
-                              fontWeight: FontWeight.w500)),
+                          style: const TextStyle(
+                              fontSize: 14.5, fontWeight: FontWeight.w500)),
                       const SizedBox(height: 3),
                       Text(
-                        relativeTime(context, entry.lastActivityAt),
+                        relativeTimeShort(context, entry.lastActivityAt),
                         style: TextStyle(
-                            fontSize: compact ? 11.5 : 12.5,
-                            color: ZInk.faint(context)),
+                            fontSize: 12.5, color: ZInk.faint(context)),
                       ),
                     ],
                   ),
@@ -786,6 +1113,9 @@ class _TaskListPageState extends State<TaskListPage> {
         title: title,
         theme: widget.theme,
         initialComposerText: initialComposerText,
+        workspaceLabel: session.activeWorkspace != null
+            ? workspaceTitle(session.activeWorkspace!)
+            : null,
       ),
     ));
   }
@@ -849,49 +1179,6 @@ class _TaskListPageState extends State<TaskListPage> {
       case 'web':
         _openRemote();
     }
-  }
-
-  /// Workspace switcher for devices with several open workspaces.
-  Widget _workspacePicker() {
-    final session = _session;
-    final workspaces = session?.workspaces ?? const [];
-    if (workspaces.length <= 1) return const SizedBox.shrink();
-    final active = session?.activeWorkspace;
-    return PopupMenuButton<Map<String, dynamic>>(
-      tooltip: tr(context, 'tasks.workspaces'),
-      itemBuilder: (c) => [
-        for (final ws in workspaces)
-          PopupMenuItem(
-            value: ws,
-            child: Row(
-              children: [
-                if (identical(ws, active))
-                  const Icon(Icons.check, size: 18)
-                else
-                  const SizedBox(width: 18),
-                const SizedBox(width: 8),
-                Flexible(child: Text(workspaceTitle(ws),
-                    overflow: TextOverflow.ellipsis)),
-              ],
-            ),
-          ),
-      ],
-      onSelected: (ws) => session?.openWorkspace(ws),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(workspaceTitle(active ?? const {}),
-                style: TextStyle(
-                    fontSize: 13, color: ZInk.muted(context))),
-            const SizedBox(width: 4),
-            Icon(Icons.folder_outlined,
-                size: 16, color: ZInk.muted(context)),
-          ],
-        ),
-      ),
-    );
   }
 
   Widget _fallback(BuildContext context, DeviceSession? session) {
@@ -995,53 +1282,22 @@ class _ConnectionBanner extends StatelessWidget {
     return _degradedCard(context);
   }
 
-  /// Official online state: title + green subtitle + explanation card.
+  /// Official online state: explanation card only (title + green subtitle
+  /// already live in the mobile AppBar).
   Widget _onlineCard(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 2, 4, 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(tr(context, 'tasks.banner.onlineTitle'),
-                  style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: ZInk.solid(context))),
-              const SizedBox(height: 3),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.circle,
-                      size: 7, color: ZColors.pillSuccessBg),
-                  const SizedBox(width: 5),
-                  Flexible(
-                    child: Text(tr(context, 'tasks.banner.onlineSubtitle'),
-                        style: const TextStyle(
-                            fontSize: 12.5, color: ZColors.pillSuccessBg)),
-                  ),
-                ],
-              ),
-            ],
-          ),
+    return Card(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: ZInk.hairline(context)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          tr(context, 'tasks.banner.onlineDesc'),
+          style: TextStyle(
+              fontSize: 13, height: 1.6, color: ZInk.faint(context)),
         ),
-        Card(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-            side: BorderSide(color: ZInk.hairline(context)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              tr(context, 'tasks.banner.onlineDesc'),
-              style: TextStyle(
-                  fontSize: 13, height: 1.6, color: ZInk.faint(context)),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -1129,155 +1385,6 @@ class _ConnectionBanner extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Official list-page command palette entry: a read-only search field that
-/// opens a bottom sheet of workspace slash commands from prepareWorkspace.
-class _CommandSearchBar extends StatefulWidget {
-  final DeviceSession? session;
-  final bool compact;
-  final ValueChanged<String> onPick;
-
-  const _CommandSearchBar({
-    required this.session,
-    required this.compact,
-    required this.onPick,
-  });
-
-  @override
-  State<_CommandSearchBar> createState() => _CommandSearchBarState();
-}
-
-class _CommandSearchBarState extends State<_CommandSearchBar> {
-  Future<void> _openSheet() async {
-    final session = widget.session;
-    if (session == null || session.status != DeviceStatus.connected) return;
-    WorkspacePrep? prep;
-    try {
-      prep = await session.prepareWorkspace();
-    } catch (_) {}
-    if (!mounted) return;
-    final commands = prep?.slashCommands ?? const <SlashCommand>[];
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetCtx) {
-        final query = ValueNotifier('');
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.viewInsetsOf(sheetCtx).bottom,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: TextField(
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      hintText: tr(sheetCtx, 'tasks.commandSearch'),
-                      prefixIcon: const Icon(Icons.search, size: 20),
-                    ),
-                    onChanged: (v) => query.value = v,
-                  ),
-                ),
-                Flexible(
-                  child: ValueListenableBuilder<String>(
-                    valueListenable: query,
-                    builder: (context, q, _) {
-                      final needle = q.trim().toLowerCase();
-                      final filtered = commands.where((c) {
-                        if (needle.isEmpty) return true;
-                        return c.name.toLowerCase().contains(needle) ||
-                            c.description.toLowerCase().contains(needle);
-                      }).toList();
-                      if (filtered.isEmpty) {
-                        return Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            tr(sheetCtx, 'tasks.commandSearch.empty'),
-                            style: TextStyle(
-                                fontSize: 13, color: ZInk.faint(sheetCtx)),
-                          ),
-                        );
-                      }
-                      return ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: filtered.length,
-                        itemBuilder: (_, i) {
-                          final c = filtered[i];
-                          final label = c.name.startsWith('/')
-                              ? c.name
-                              : '/${c.name}';
-                          return ListTile(
-                            title: Text(label),
-                            subtitle: c.description.isNotEmpty
-                                ? Text(c.description,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis)
-                                : null,
-                            onTap: () {
-                              Navigator.of(sheetCtx).pop();
-                              widget.onPick(label);
-                            },
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = widget.session != null &&
-        widget.session!.status == DeviceStatus.connected;
-    return Material(
-      color: Theme.of(context).cardTheme.color,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: ZInk.hairline(context)),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: enabled ? _openSheet : null,
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-              horizontal: widget.compact ? 10 : 12,
-              vertical: widget.compact ? 9 : 11),
-          child: Row(
-            children: [
-              Icon(Icons.search,
-                  size: widget.compact ? 18 : 20,
-                  color: enabled ? ZInk.muted(context) : ZInk.ghost(context)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  tr(context, 'tasks.commandSearch'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: widget.compact ? 12.5 : 13,
-                    color: enabled
-                        ? ZInk.faint(context)
-                        : ZInk.ghost(context),
-                  ),
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );

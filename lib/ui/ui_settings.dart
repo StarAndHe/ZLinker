@@ -131,6 +131,26 @@ String relativeTime(BuildContext context, int ms) {
       .substring(0, 10);
 }
 
+/// Official list/sidebar compact relative time: `27分` / `1小时` / `13天`.
+String relativeTimeShort(BuildContext context, int ms) {
+  final diff =
+      DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
+  if (diff.inMinutes < 1) return tr(context, 'time.short.justNow');
+  if (diff.inHours < 1) {
+    return trP(context, 'time.short.minutes', ['${diff.inMinutes}']);
+  }
+  if (diff.inDays < 1) {
+    return trP(context, 'time.short.hours', ['${diff.inHours}']);
+  }
+  if (diff.inDays < 30) {
+    return trP(context, 'time.short.days', ['${diff.inDays}']);
+  }
+  return DateTime.fromMillisecondsSinceEpoch(ms)
+      .toLocal()
+      .toString()
+      .substring(0, 10);
+}
+
 const _zh = {
   'app.title': 'ZRemote',
   'devices.empty.title': '还没有设备',
@@ -185,6 +205,10 @@ const _zh = {
   'time.minutesAgo': '\$0 分钟前',
   'time.hoursAgo': '\$0 小时前',
   'time.daysAgo': '\$0 天前',
+  'time.short.justNow': '刚刚',
+  'time.short.minutes': '\$0分',
+  'time.short.hours': '\$0小时',
+  'time.short.days': '\$0天',
   'tasks.title': '任务',
   'tasks.empty': '暂无任务',
   'tasks.loading': '正在获取任务列表…',
@@ -306,17 +330,20 @@ const _zh = {
   'chat.attach.uploading': '正在上传附件…',
   'chat.attach.loadFailed': '[图片加载失败] \$0',
   'chat.more': '更多',
-  'chat.more.rename': '重命名',
+  'chat.more.rename': '重命名任务',
   'chat.more.rename.hint': '任务名称',
   'chat.more.rename.save': '保存',
   'chat.more.pin': '置顶',
   'chat.more.archive': '归档',
   'chat.more.unread': '标记未读',
   'chat.more.copyPath': '复制路径',
-  'chat.more.copyId': '复制会话 ID',
-  'chat.more.idCopied': '会话 ID 已复制',
+  'chat.more.copyId': '复制任务 ID',
+  'chat.more.copyLink': '复制任务链接',
+  'chat.more.linkCopied': '任务链接已复制',
+  'chat.more.idCopied': '任务 ID 已复制',
   'chat.more.pathCopied': '路径已复制',
   'chat.more.noPath': '没有可用的工作区路径',
+  'chat.more.noLink': '没有可用的任务链接',
   'chat.more.compact': '压缩上下文',
   'chat.more.usage': '用量统计',
   'chat.more.plans': '计划',
@@ -357,6 +384,9 @@ const _zh = {
   'tasks.commandSearch': '搜索并执行当前工作区可用的命令',
   'tasks.commandSearch.empty': '没有匹配的命令',
   'tasks.pinned': '已置顶',
+  'tasks.projects': '项目',
+  'tasks.search': '搜索',
+  'tasks.sidebar.new': '新建任务',
   'remote.error.title': '无法连接到桌面设备',
   'remote.error.hint': '请确认桌面 ZCode 已打开且网络可用',
   'remote.reload': '重新加载',
@@ -627,6 +657,10 @@ const _en = {
   'time.minutesAgo': '\$0 min ago',
   'time.hoursAgo': '\$0 h ago',
   'time.daysAgo': '\$0 d ago',
+  'time.short.justNow': 'now',
+  'time.short.minutes': '\$0m',
+  'time.short.hours': '\$0h',
+  'time.short.days': '\$0d',
   'tasks.title': 'Tasks',
   'tasks.empty': 'No tasks yet',
   'tasks.loading': 'Loading tasks…',
@@ -752,17 +786,20 @@ const _en = {
   'chat.attach.uploading': 'Uploading attachments…',
   'chat.attach.loadFailed': '[image failed to load] \$0',
   'chat.more': 'More',
-  'chat.more.rename': 'Rename',
+  'chat.more.rename': 'Rename task',
   'chat.more.rename.hint': 'Task name',
   'chat.more.rename.save': 'Save',
   'chat.more.pin': 'Pin',
   'chat.more.archive': 'Archive',
   'chat.more.unread': 'Mark unread',
   'chat.more.copyPath': 'Copy path',
-  'chat.more.copyId': 'Copy session ID',
-  'chat.more.idCopied': 'Session ID copied',
+  'chat.more.copyId': 'Copy task ID',
+  'chat.more.copyLink': 'Copy task link',
+  'chat.more.linkCopied': 'Task link copied',
+  'chat.more.idCopied': 'Task ID copied',
   'chat.more.pathCopied': 'Path copied',
   'chat.more.noPath': 'No workspace path available',
+  'chat.more.noLink': 'No task link available',
   'chat.more.compact': 'Compact context',
   'chat.more.usage': 'Usage',
   'chat.more.plans': 'Plans',
@@ -806,6 +843,9 @@ const _en = {
   'tasks.commandSearch': 'Search and run commands available in this workspace',
   'tasks.commandSearch.empty': 'No matching commands',
   'tasks.pinned': 'Pinned',
+  'tasks.projects': 'Projects',
+  'tasks.search': 'Search',
+  'tasks.sidebar.new': 'New task',
   'remote.error.title': 'Cannot reach the desktop device',
   'remote.error.hint': 'Make sure ZCode desktop is running and the network works',
   'remote.reload': 'Reload',
