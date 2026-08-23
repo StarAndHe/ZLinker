@@ -5,10 +5,13 @@ import 'package:url_launcher/url_launcher.dart';
 import 'theme.dart';
 import 'ui_settings.dart';
 
-/// Links shown on the about page. The repo is the project home; the
-/// privacy policy is hosted in-repo until an official site exists.
+/// Links shown on the about page. Legal pages have zh / en variants picked
+/// by the in-app language.
 const _kGithubUrl = 'https://github.com/opensymph/ZRemote';
-const _kPrivacyUrl = 'https://github.com/opensymph/ZRemote/blob/main/PRIVACY.md';
+const _kPrivacyUrlZh = 'https://privacy.songsong.org/';
+const _kPrivacyUrlEn = 'https://privacy.songsong.org/en.html';
+const _kTosUrlZh = 'https://privacy.songsong.org/tos.html';
+const _kTosUrlEn = 'https://privacy.songsong.org/tos-en.html';
 
 class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
@@ -46,6 +49,8 @@ class _AboutPageState extends State<AboutPage> {
 
   @override
   Widget build(BuildContext context) {
+    final en =
+        UiSettingsProvider.of(context)?.locale.startsWith('en') ?? false;
     return Scaffold(
       appBar: AppBar(title: Text(tr(context, 'settings.about'))),
       body: ListView(
@@ -53,15 +58,13 @@ class _AboutPageState extends State<AboutPage> {
         children: [
           const SizedBox(height: 24),
           Center(
-            child: Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: ZColors.sky500.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(20),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: Image.asset(
+                'assets/icon/icon.png',
+                width: 72,
+                height: 72,
               ),
-              child: const Icon(Icons.settings_remote,
-                  size: 36, color: ZColors.sky500),
             ),
           ),
           const SizedBox(height: 12),
@@ -95,7 +98,13 @@ class _AboutPageState extends State<AboutPage> {
             leading: const Icon(Icons.privacy_tip_outlined),
             title: Text(tr(context, 'about.privacy')),
             trailing: const Icon(Icons.open_in_new, size: 18),
-            onTap: () => _launch(_kPrivacyUrl),
+            onTap: () => _launch(en ? _kPrivacyUrlEn : _kPrivacyUrlZh),
+          ),
+          ListTile(
+            leading: const Icon(Icons.article_outlined),
+            title: Text(tr(context, 'about.tos')),
+            trailing: const Icon(Icons.open_in_new, size: 18),
+            onTap: () => _launch(en ? _kTosUrlEn : _kTosUrlZh),
           ),
           ListTile(
             leading: const Icon(Icons.description_outlined),
