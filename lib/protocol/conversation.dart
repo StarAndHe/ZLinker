@@ -1038,6 +1038,9 @@ class WorkspacePrep {
               if (c is Map) SlashCommand._(c),
         ];
 
+  /// Public constructor (tests / manual construction).
+  factory WorkspacePrep.fromMap(Map raw) => WorkspacePrep._(raw);
+
   ConfigOption? option(String id) {
     for (final o in configOptions) {
       if (o.id == id) return o;

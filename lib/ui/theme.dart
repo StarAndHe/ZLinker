@@ -42,6 +42,11 @@ class ZColors {
   static const danger = Color(0xFFFF5C5C); // dark destructive
   static const dangerLight = Color(0xFFE03131); // light destructive
   static const success = Color(0xFF34D399); // emerald-400
+  static const warning = Color(0xFFFBBF24); // amber-400
+
+  // Official mobile status pills (measured on the official 390px list).
+  static const pillSuccessBg = Color(0xFF46BF72); // 已完成 pill surface
+  static const pillRunningBg = Color(0xFF001D3D); // 运行中 pill surface
 }
 
 /// Theme-aware text colors mirroring the official foreground tokens.
@@ -60,6 +65,26 @@ class ZInk {
   static Color ghost(BuildContext c) => _dark(c)
       ? ZColors.neutral200.withValues(alpha: 0.30)
       : ZColors.neutral700.withValues(alpha: 0.40);
+
+  /// Sub-surface tone (tiles inside a card: reasoning, tool calls, queue).
+  static Color tile(BuildContext c) =>
+      _dark(c) ? ZColors.darkSecondary : ZColors.lightSecondary;
+
+  /// 1px hairline borders around tiles.
+  static Color hairline(BuildContext c) => _dark(c)
+      ? const Color(0x14FFFFFF)
+      : const Color(0x140D0D0D);
+
+  /// Inline-code pill background (assistant markdown `code`).
+  static Color codeInlineBg(BuildContext c) =>
+      _dark(c) ? ZColors.neutral800 : ZColors.neutral200;
+
+  /// Fenced code-block background.
+  static Color codeBlockBg(BuildContext c) =>
+      _dark(c) ? ZColors.neutral950 : ZColors.neutral100;
+
+  static Color codeText(BuildContext c) =>
+      _dark(c) ? ZColors.neutral200 : ZColors.neutral700;
 
   static bool _dark(BuildContext c) =>
       Theme.of(c).brightness == Brightness.dark;

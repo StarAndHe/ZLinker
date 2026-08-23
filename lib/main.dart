@@ -7,6 +7,7 @@ import 'state/device_session.dart';
 import 'state/device_store.dart';
 import 'state/notification_hub.dart';
 import 'state/scheduled_store.dart';
+import 'ui/chat/chat_page.dart';
 import 'ui/devices_page.dart';
 import 'ui/remote_page.dart';
 import 'ui/theme.dart';
@@ -66,8 +67,9 @@ class _ZRemoteAppState extends State<ZRemoteApp> {
     if (mounted) _notifyHub.syncWith(_hub.activeSessions);
   }
 
-  /// Notification tap → the producing conversation: suspend the native
-  /// connection, open the WebView deep-linked to the session, resume after.
+  /// Notification tap → the producing conversation: native chat page when
+  /// the protocol link is up (no WebView suspend), WebView deep link as
+  /// fallback for devices without a native session.
   Future<void> _handleNotificationTap(Map<String, dynamic> payload) async {
     final deviceId = payload['deviceId'] as String?;
     if (deviceId == null) return;
@@ -76,10 +78,23 @@ class _ZRemoteAppState extends State<ZRemoteApp> {
     final sessionId = payload['sessionId'] as String?;
     final title = payload['title'] as String?;
     await _store.touch(device.id);
-    await _hub.suspend(device.id);
+    final session = _hub.ensure(device);
     if (!mounted) return;
     final context = _navigatorKey.currentContext;
     if (context == null || !context.mounted) return;
+    if (session != null) {
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ChatPage(
+          gateway: session,
+          sessionId: sessionId,
+          title: title ?? device.label,
+          theme: _theme,
+        ),
+      ));
+      return;
+    }
+    await _hub.suspend(device.id);
+    if (!context.mounted) return;
     await Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => RemotePage(
         device: device,

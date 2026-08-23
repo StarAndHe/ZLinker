@@ -71,6 +71,7 @@ class _DevicesPageState extends State<DevicesPage> {
           store: widget.store,
           hub: widget.hub,
           device: device,
+          theme: widget.theme,
         ),
       ));
       return;

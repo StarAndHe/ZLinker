@@ -8,6 +8,7 @@ import '../protocol/conversation.dart';
 import '../protocol/off_peak.dart';
 import '../protocol/relay_client.dart';
 import '../protocol/remote_client.dart';
+import '../protocol/task_commands.dart';
 import 'device_store.dart';
 
 /// Mirrors `HC()` in the web client:
@@ -68,6 +69,116 @@ abstract interface class NotifiableSession
   SessionsIndexState? get sessions;
 }
 
+/// A live conversation subscription handed to the chat UI: [state] is the
+/// live rows/snapshot notifier, [close] unsubscribes.
+class ChatHandle {
+  final ConversationState state;
+  final Future<void> Function() close;
+
+  const ChatHandle({required this.state, required this.close});
+}
+
+/// The Conversation V4 surface the native chat page drives — the
+/// [AutomationHost]/[OffPeakHost] seam pattern applied to conversations.
+/// [DeviceSession] implements it against the live transport; tests fake it
+/// (recording calls, answering from a real [ConversationState] fed by hand).
+abstract interface class ChatGateway implements Listenable {
+  DeviceStatus get status;
+  bool get kicked;
+  String? get error;
+
+  /// Task metadata commands (rename/pin/archive/unread). Method names are
+  /// NOT live-confirmed — see [TaskCommandsPort].
+  Future<dynamic> renameTask(String sessionId, String title);
+  Future<dynamic> setTaskPinned(String sessionId, bool pinned);
+  Future<dynamic> setTaskArchived(String sessionId, bool archived);
+  Future<dynamic> setTaskUnread(String sessionId, bool unread);
+
+  /// `workspaceId` for draft-mode createSession, plus the workspace path
+  /// for the chat page's copy action.
+  String? get chatWorkspaceId;
+  String? get workspacePath;
+
+  /// Manual recovery after a KICK: full suspend + reconnect.
+  Future<void> reconnect();
+
+  Future<ChatHandle> subscribe(String sessionId);
+  Future<WorkspacePrep> prepareWorkspace();
+  Future<List<SkillEntry>> skills();
+
+  Future<String> createSession(
+    String workspaceId, {
+    String? firstText,
+    List<Map<String, dynamic>>? attachments,
+    Map<String, dynamic>? config,
+  });
+
+  Future<dynamic> sendText(
+    String sessionId,
+    String text, {
+    List<Map<String, dynamic>>? attachments,
+    String? heldQueueDisposition,
+  });
+
+  Future<dynamic> sendGoalCommand(String sessionId, String text,
+      {String? heldQueueDisposition});
+
+  Future<dynamic> stop(String sessionId);
+  Future<dynamic> compact(String sessionId);
+  Future<dynamic> pauseGoal(String sessionId);
+  Future<dynamic> resumeGoal(String sessionId);
+
+  Future<dynamic> switchModelConfig(
+    String sessionId, {
+    required String provider,
+    required String model,
+    required String thought,
+  });
+
+  Future<dynamic> switchCollaborationMode(String sessionId, String mode);
+  Future<dynamic> setFollowupMode(String sessionId, String mode);
+  Future<dynamic> setAssistantFeedback(
+      String sessionId, Map<String, dynamic> target, String? feedback);
+  Future<dynamic> resolveInteraction(
+    String sessionId,
+    String interactionId, {
+    String? optionId,
+    String? freeText,
+    String? action,
+    Map<String, dynamic>? content,
+  });
+
+  Future<dynamic> rowsRange(String sessionId,
+      {int? beforeRowId, int limit});
+
+  Future<Map<String, dynamic>> attachmentPut(
+    String sessionId, {
+    required String fileName,
+    required String mime,
+    required Uint8List bytes,
+    void Function(double progress)? onProgress,
+  });
+
+  Future<({Uint8List bytes, String? mediaType})> attachmentRead(
+      String sessionId,
+      {required String ref});
+
+  Future<dynamic> sendQueuedNow(String sessionId, String queueItemId);
+  Future<dynamic> editQueueItem(
+      String sessionId, String queueItemId, String newText);
+  Future<dynamic> deleteQueueItem(String sessionId, String queueItemId);
+  Future<dynamic> setAutoDrain(String sessionId, bool autoDrain);
+  Future<dynamic> plans(String sessionId);
+  Future<dynamic> fileChanges(String sessionId,
+      {required Map<String, dynamic> target});
+  Future<dynamic> retryTurn(String sessionId, Map<String, dynamic> target);
+  Future<dynamic> forkAssistant(String sessionId, Map<String, dynamic> target);
+  Future<dynamic> editUserQuery(
+      String sessionId, Map<String, dynamic> target, String newText);
+  Future<dynamic> applyFileRewind(
+      String sessionId, Map<String, dynamic> target);
+}
+
 /// One native protocol connection to one device. Owns the full stack
 /// (relay → bridge → conversation → sessions-index) and exposes just what
 /// the native UI needs: online status, the live task list and task
@@ -81,7 +192,7 @@ abstract interface class NotifiableSession
 /// - Being KICKED by another terminal is terminal for this session: no
 ///   auto-reconnect (the relay already suppresses it).
 class DeviceSession extends ChangeNotifier
-    implements AutomationHost, OffPeakHost, NotifiableSession {
+    implements AutomationHost, OffPeakHost, NotifiableSession, ChatGateway {
   @override
   final String deviceId;
   final RemoteConnectionParams params;
@@ -102,6 +213,7 @@ class DeviceSession extends ChangeNotifier
   BridgeSession? _bridge;
   ConversationTransport? _conversation;
   SessionsIndexSubscription? _sessionsSub;
+  final Map<String, ConversationSubscription> _chatSubs = {};
   StreamSubscription? _failureSub;
   Timer? _retryTimer;
   int _retryAttempts = 0;
@@ -117,7 +229,9 @@ class DeviceSession extends ChangeNotifier
 
   @override
   DeviceStatus get status => _status;
+  @override
   bool get kicked => _kicked;
+  @override
   String? get error => _error;
 
   /// True while a workspace bridge + sessions-index open is in flight.
@@ -130,6 +244,12 @@ class DeviceSession extends ChangeNotifier
   /// Live sessions-index state of the active workspace, if subscribed.
   @override
   SessionsIndexState? get sessions => _sessionsSub?.state;
+
+  /// Conversation transport of the active workspace (chat UI seam).
+  ConversationTransport? get conversation => _conversation;
+
+  /// Workspace bridge of the active workspace.
+  BridgeSession? get bridge => _bridge;
 
   /// Sessions with phase running/prewarming — the card badge count.
   int get runningTaskCount => sessions?.list
@@ -283,11 +403,16 @@ class DeviceSession extends ChangeNotifier
       }
       final oldSub = _sessionsSub;
       final oldBridge = _bridge;
+      final oldChats = List.of(_chatSubs.values);
       _sessionsSub = null;
       _conversation = null;
+      _chatSubs.clear();
       _bridge = bridge;
       _activeWorkspace = workspace;
       unawaited(oldSub?.dispose());
+      for (final s in oldChats) {
+        unawaited(s.dispose());
+      }
       oldBridge?.dispose();
 
       final scope = <String, dynamic>{
@@ -413,16 +538,276 @@ class DeviceSession extends ChangeNotifier
   Future<String> createTaskWithMessage(String text) async {
     final conv = _conversation;
     if (conv == null) throw StateError('not connected');
-    final workspaceId = sessions?.workspaceId ??
-        (_activeWorkspace == null
-            ? null
-            : '${_activeWorkspace!['workspaceId'] ??
-                workspaceKeyOf(_activeWorkspace!)}');
+    final workspaceId = chatWorkspaceId;
     if (workspaceId == null || workspaceId.isEmpty) {
       throw StateError('no workspace');
     }
     return conv.createSession(workspaceId, firstText: text);
   }
+
+  // ------------------------------------------------------------ ChatGateway
+
+  ConversationTransport get _requireConversation {
+    final conv = _conversation;
+    if (conv == null) throw StateError('not connected');
+    return conv;
+  }
+
+  @override
+  String? get chatWorkspaceId {
+    final fromIndex = sessions?.workspaceId;
+    if (fromIndex != null && fromIndex.isNotEmpty) return fromIndex;
+    final ws = _activeWorkspace;
+    if (ws == null) return null;
+    return '${ws['workspaceId'] ?? workspaceKeyOf(ws)}';
+  }
+
+  @override
+  String? get workspacePath => _activeWorkspace?['workspacePath'] as String?;
+
+  /// Task metadata commands on the zcode-task channel (method names not
+  /// live-confirmed, probed per operation — see [TaskCommandsPort]).
+  late final TaskCommandsPort taskCommands = TaskCommandsPort(
+    (method, args) => callChannel('zcode-task', method, args),
+    scope: () => offPeakScope,
+  );
+
+  @override
+  Future<dynamic> renameTask(String sessionId, String title) =>
+      taskCommands.rename(sessionId, title);
+
+  @override
+  Future<dynamic> setTaskPinned(String sessionId, bool pinned) =>
+      taskCommands.setPinned(sessionId, pinned);
+
+  @override
+  Future<dynamic> setTaskArchived(String sessionId, bool archived) =>
+      taskCommands.setArchived(sessionId, archived);
+
+  @override
+  Future<dynamic> setTaskUnread(String sessionId, bool unread) =>
+      taskCommands.setUnread(sessionId, unread);
+
+  /// Full reconnect after a KICK: drop everything and dial again.
+  @override
+  Future<void> reconnect() async {
+    await suspend();
+    await connect();
+  }
+
+  @override
+  Future<ChatHandle> subscribe(String sessionId) async {
+    final existing = _chatSubs[sessionId];
+    if (existing != null) {
+      return ChatHandle(
+        state: existing.state,
+        close: () async {
+          if (_chatSubs[sessionId] == existing) {
+            _chatSubs.remove(sessionId);
+            await existing.dispose();
+          }
+        },
+      );
+    }
+    final sub = await _requireConversation.subscribe(sessionId);
+    _chatSubs[sessionId] = sub;
+    return ChatHandle(
+      state: sub.state,
+      close: () async {
+        if (_chatSubs[sessionId] == sub) {
+          _chatSubs.remove(sessionId);
+          await sub.dispose();
+        }
+      },
+    );
+  }
+
+  @override
+  Future<WorkspacePrep> prepareWorkspace() =>
+      _requireConversation.prepareWorkspace();
+
+  @override
+  Future<List<SkillEntry>> skills() async {
+    try {
+      return await _requireConversation.skills();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  @override
+  Future<String> createSession(
+    String workspaceId, {
+    String? firstText,
+    List<Map<String, dynamic>>? attachments,
+    Map<String, dynamic>? config,
+  }) =>
+      _requireConversation.createSession(
+        workspaceId,
+        firstText: firstText,
+        attachments: attachments,
+        config: config,
+      );
+
+  @override
+  Future<dynamic> sendText(
+    String sessionId,
+    String text, {
+    List<Map<String, dynamic>>? attachments,
+    String? heldQueueDisposition,
+  }) =>
+      _requireConversation.sendText(
+        sessionId,
+        text,
+        attachments: attachments,
+        heldQueueDisposition: heldQueueDisposition,
+      );
+
+  @override
+  Future<dynamic> sendGoalCommand(String sessionId, String text,
+          {String? heldQueueDisposition}) =>
+      _requireConversation.sendGoalCommand(
+        sessionId,
+        text,
+        heldQueueDisposition: heldQueueDisposition,
+      );
+
+  @override
+  Future<dynamic> stop(String sessionId) =>
+      _requireConversation.stop(sessionId);
+
+  @override
+  Future<dynamic> compact(String sessionId) =>
+      _requireConversation.compact(sessionId);
+
+  @override
+  Future<dynamic> pauseGoal(String sessionId) =>
+      _requireConversation.pauseGoal(sessionId);
+
+  @override
+  Future<dynamic> resumeGoal(String sessionId) =>
+      _requireConversation.resumeGoal(sessionId);
+
+  @override
+  Future<dynamic> switchModelConfig(
+    String sessionId, {
+    required String provider,
+    required String model,
+    required String thought,
+  }) =>
+      _requireConversation.switchModelConfig(
+        sessionId,
+        provider: provider,
+        model: model,
+        thought: thought,
+      );
+
+  @override
+  Future<dynamic> switchCollaborationMode(String sessionId, String mode) =>
+      _requireConversation.switchCollaborationMode(sessionId, mode);
+
+  @override
+  Future<dynamic> setFollowupMode(String sessionId, String mode) =>
+      _requireConversation.setFollowupMode(sessionId, mode);
+
+  @override
+  Future<dynamic> setAssistantFeedback(
+          String sessionId, Map<String, dynamic> target, String? feedback) =>
+      _requireConversation.setAssistantFeedback(sessionId, target, feedback);
+
+  @override
+  Future<dynamic> resolveInteraction(
+    String sessionId,
+    String interactionId, {
+    String? optionId,
+    String? freeText,
+    String? action,
+    Map<String, dynamic>? content,
+  }) =>
+      _requireConversation.resolveInteraction(
+        sessionId,
+        interactionId,
+        optionId: optionId,
+        freeText: freeText,
+        action: action,
+        content: content,
+      );
+
+  @override
+  Future<dynamic> rowsRange(String sessionId,
+          {int? beforeRowId, int limit = 60}) =>
+      _requireConversation.rowsRange(
+        sessionId,
+        beforeRowId: beforeRowId,
+        limit: limit,
+      );
+
+  @override
+  Future<Map<String, dynamic>> attachmentPut(
+    String sessionId, {
+    required String fileName,
+    required String mime,
+    required Uint8List bytes,
+    void Function(double progress)? onProgress,
+  }) =>
+      _requireConversation.attachmentPut(
+        sessionId,
+        fileName: fileName,
+        mime: mime,
+        bytes: bytes,
+        onProgress: onProgress,
+      );
+
+  @override
+  Future<({Uint8List bytes, String? mediaType})> attachmentRead(
+          String sessionId,
+          {required String ref}) =>
+      _requireConversation.attachmentRead(sessionId, ref: ref);
+
+  @override
+  Future<dynamic> sendQueuedNow(String sessionId, String queueItemId) =>
+      _requireConversation.sendQueuedNow(sessionId, queueItemId);
+
+  @override
+  Future<dynamic> editQueueItem(
+          String sessionId, String queueItemId, String newText) =>
+      _requireConversation.editQueueItem(sessionId, queueItemId, newText);
+
+  @override
+  Future<dynamic> deleteQueueItem(String sessionId, String queueItemId) =>
+      _requireConversation.deleteQueueItem(sessionId, queueItemId);
+
+  @override
+  Future<dynamic> setAutoDrain(String sessionId, bool autoDrain) =>
+      _requireConversation.setAutoDrain(sessionId, autoDrain);
+
+  @override
+  Future<dynamic> plans(String sessionId) =>
+      _requireConversation.plans(sessionId);
+
+  @override
+  Future<dynamic> fileChanges(String sessionId,
+          {required Map<String, dynamic> target}) =>
+      _requireConversation.fileChanges(sessionId, target: target);
+
+  @override
+  Future<dynamic> retryTurn(String sessionId, Map<String, dynamic> target) =>
+      _requireConversation.retryTurn(sessionId, target);
+
+  @override
+  Future<dynamic> forkAssistant(
+          String sessionId, Map<String, dynamic> target) =>
+      _requireConversation.forkAssistant(sessionId, target);
+
+  @override
+  Future<dynamic> editUserQuery(
+          String sessionId, Map<String, dynamic> target, String newText) =>
+      _requireConversation.editUserQuery(sessionId, target, newText);
+
+  @override
+  Future<dynamic> applyFileRewind(
+          String sessionId, Map<String, dynamic> target) =>
+      _requireConversation.applyFileRewind(sessionId, target);
 
   /// Cleanly closes the connection so the in-app WebView (or another
   /// terminal) can take the slot without a KICK race. Callers reconnect
@@ -435,10 +820,12 @@ class DeviceSession extends ChangeNotifier
     final client = _client;
     final bridge = _bridge;
     final sub = _sessionsSub;
+    final chats = List.of(_chatSubs.values);
     _client = null;
     _bridge = null;
     _conversation = null;
     _sessionsSub = null;
+    _chatSubs.clear();
     _activeWorkspace = null;
     _workspaces = [];
     _kicked = false;
@@ -447,6 +834,9 @@ class DeviceSession extends ChangeNotifier
     await _failureSub?.cancel();
     _failureSub = null;
     unawaited(sub?.dispose());
+    for (final s in chats) {
+      unawaited(s.dispose());
+    }
     bridge?.dispose();
     await client?.dispose();
   }

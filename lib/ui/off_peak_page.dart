@@ -5,13 +5,14 @@ import 'package:flutter/material.dart';
 import '../protocol/off_peak.dart';
 import '../state/device_session.dart';
 import '../state/device_store.dart';
+import 'chat/chat_page.dart';
 import 'remote_page.dart';
 import 'theme.dart';
 import 'ui_settings.dart';
 
 /// Off-peak tasks (闲时任务) of one device: free queued runs executed in
 /// compute-rich windows (Coding Plan only, monthly quota). Results open
-/// the WebView remote page deep-linked to the produced session.
+/// the native chat page; the WebView stays as fallback.
 class OffPeakPage extends StatefulWidget {
   final DeviceStore store;
   final DeviceSessionHub hub;
@@ -132,12 +133,26 @@ class _OffPeakPageState extends State<OffPeakPage> {
     await _load();
   }
 
-  /// Mirrors the task list's handover: suspend the native connection, open
-  /// the WebView deep-linked to the result session, resume after pop.
+  /// Result tap: native chat page deep-linked to the produced session (the
+  /// protocol link stays live); WebView fallback when no link exists.
   Future<void> _openResult(OffPeakTask task) async {
     final sessionId = task.sessionId ?? task.conversationId;
     if (sessionId == null) return;
     await widget.store.touch(widget.device.id);
+    final deviceSession = widget.hub.sessionOf(widget.device.id);
+    if (!mounted) return;
+    if (deviceSession != null) {
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ChatPage(
+          gateway: deviceSession,
+          sessionId: sessionId,
+          title: task.title.isEmpty
+              ? tr(context, 'op.viewResult')
+              : task.title,
+        ),
+      ));
+      return;
+    }
     await widget.hub.suspend(widget.device.id);
     if (!mounted) return;
     await Navigator.of(context).push(MaterialPageRoute(
