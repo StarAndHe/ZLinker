@@ -3,8 +3,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Design tokens extracted verbatim from the official ZCode Web Remote Control
 /// bundle (`theme-zai-dark` / `:root` light). The official page uses a Tailwind
-/// neutral gray scale with a sky-blue brand accent — not the blue-purple of
-/// zemote. Values below are the official oklch scale resolved to sRGB.
+/// neutral gray scale with a sky-blue brand accent. Values below are the
+/// official oklch scale resolved to sRGB.
 class ZColors {
   ZColors._();
 

@@ -2,13 +2,13 @@
 
 # ZRemote
 
-**zemote, without the protocol.**
+**The protocol-proof ZCode remote.**
 
-The open-source, protocol-proof remote launcher for **ZCode** —
+The open-source remote launcher for **ZCode** —
 manage your desktop devices in one list, tap one, and you're in the official
 web remote. No relay handshake, no pairing proofs, no IPC to track.
 
-[简体中文](README.zh-CN.md) · [Why ZRemote?](#-why-zremote) · [Features](#-features) · [Compare](#️-zremote-vs-zemote) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Roadmap](#️-roadmap)
+[简体中文](README.zh-CN.md) · [Why ZRemote?](#-why-zremote) · [Features](#-features) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Roadmap](#️-roadmap)
 
 [![Release](https://img.shields.io/github/v/release/opensymph/ZRemote?style=flat-square&logo=github&color=blue)](https://github.com/opensymph/ZRemote/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/opensymph/ZRemote/ci.yml?style=flat-square&label=build)](https://github.com/opensymph/ZRemote/actions/workflows/ci.yml)
@@ -25,14 +25,10 @@ web remote. No relay handshake, no pairing proofs, no IPC to track.
 
 ## 💡 Why ZRemote?
 
-[zemote](https://github.com/HumanAILoop/zemote) proved a third-party ZCode
-remote client was possible — by re-implementing the entire private protocol:
-relay handshake, HMAC-SHA256 pairing proofs, rpc-frame fragmentation, IPC
-codec, and the V4 snapshot/delta protocol.
-
-It's an impressive piece of reverse engineering. It's also a treadmill:
-every time Zhipu tweaks the protocol, a protocol client breaks until someone
-re-ports it.
+Third-party ZCode remote clients usually re-implement the private protocol —
+relay handshakes, pairing proofs, frame transport, session snapshots.
+Impressive engineering, and fragile: every time the protocol changes, the
+client breaks until someone re-ports the whole stack.
 
 **ZRemote takes the opposite bet: implement none of it.** It is a launcher —
 a clean device list plus an embedded browser that opens the *official* web
@@ -53,7 +49,7 @@ points at it.
 - 🔐 **Credentials stay on your phone** — device URLs live in local storage
   only; no servers, no telemetry, no accounts.
 
-> *If zemote is the power user's client, ZRemote is the one that never breaks.*
+> *The remote client that never breaks.*
 
 Sounds good? **Star ⭐ the repo** to follow along.
 
@@ -69,26 +65,6 @@ Sounds good? **Star ⭐ the repo** to follow along.
 | 🎨 **Official design tokens** | Neutral gray scale + sky accent extracted from the real bundle; dark `#161616` default, light, and follow-system themes |
 | 🌗 **Theme control** | Dark / light / system, persisted — dark by default, just like the official page |
 | 📱 **Android + iOS** | One codebase, both platforms, permissions pre-wired (camera, photo library) |
-
----
-
-## ⚔️ ZRemote vs zemote
-
-Honest comparison — pick the right tool. zemote is a great project and worth
-a star too.
-
-| | **ZRemote** | **[zemote](https://github.com/HumanAILoop/zemote)** |
-|---|---|---|
-| Approach | URL launcher + official web remote | Full protocol re-implementation |
-| Survives Zhipu protocol changes | ✅ re-scan once, app unchanged | ⚠️ needs a protocol-layer update |
-| Remote UI | Official web page (always current) | Native re-implementation |
-| Native chat / streaming UI | ❌ via the web page | ✅ native |
-| Background / push notifications | ❌ | ✅ Android |
-| Multi-device management | ✅ list + JSON backup | ✅ list + live connection status |
-| Code to maintain | ~1k LoC, no protocol | relay + rpc-frame + IPC + V4 stack |
-| Offline pairing state | Persisted WebView storage | Native pairing |
-| Android | ✅ | ✅ |
-| iOS | ✅ build on a Mac | ⚠️ unverified |
 
 ---
 
@@ -133,8 +109,7 @@ flutter build apk                 # → build/app/outputs/flutter-apk/app-releas
 flutter build ipa                 # on a Mac, after configuring signing
 ```
 
-Inside the app: **添加设备 (Add device)** → scan or paste → tap the card →
-you're in.
+Inside the app: **Add device** → scan or paste → tap the card → you're in.
 
 ---
 
@@ -167,11 +142,13 @@ lib/
 │   └── id.dart                # UUID
 ├── state/
 │   └── device_store.dart      # device model + persistence + import/export
-└── ui/
-    ├── theme.dart             # official design tokens + dark/light themes
-    ├── devices_page.dart      # the device list
-    ├── qr_scan_page.dart      # camera + gallery QR scanning
-    └── remote_page.dart       # fullscreen WebView remote
+├── ui/
+│   ├── theme.dart             # official design tokens + dark/light themes
+│   ├── devices_page.dart      # the device list
+│   ├── qr_scan_page.dart      # camera + gallery QR scanning
+│   └── remote_page.dart       # fullscreen WebView remote
+└── tool/
+    └── icon_gen.dart          # regenerates the launcher icon set
 ```
 
 ---
@@ -204,9 +181,6 @@ Small, focused PRs land fastest. For UI work, keep the
 
 ## 🙏 Acknowledgements
 
-- **[zemote](https://github.com/HumanAILoop/zemote)** — the reference project
-  this repo learned from; its URL parser, QR flow, and storage pattern were
-  adapted here. MIT.
 - **ZCode & the official web remote** — the actual remote experience; all
   protocol smarts live there.
 - The Flutter ecosystem: `flutter_inappwebview`, `mobile_scanner`, `zxing2`,

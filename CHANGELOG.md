@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-08-23
+
+### Added
+
+- App icon in the official ZCode style: dark `#161616` background, bold
+  geometric white "Z", sky-blue broadcast accent; generated for all Android
+  densities (classic + adaptive) and iOS via `flutter_launcher_icons`.
+- `tool/icon_gen.dart` — regenerates the icon source art from code.
+
+### Changed
+
+- README (English + 简体中文) rewritten: new tagline, no third-party project
+  references.
+
 ## [1.0.0] - 2026-08-23
 
 ### Added

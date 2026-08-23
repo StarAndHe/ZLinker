@@ -2,13 +2,13 @@
 
 # ZRemote
 
-**zemote,去掉协议复刻。**
+**协议免疫的 ZCode 远程控制。**
 
-开源、协议免疫的 **ZCode 远程控制启动器** ——
+开源的 **ZCode 远程控制启动器** ——
 把桌面设备收进一个列表,点一下,直达官方 Web 远程控制。
 没有 relay 握手,没有配对证明,没有需要追着改的 IPC。
 
-[English](README.md) · [为什么做 ZRemote?](#-为什么做-zremote) · [功能](#-功能) · [对比](#️-zremote-vs-zemote) · [快速开始](#-快速开始) · [架构](#-架构) · [路线图](#️-路线图)
+[English](README.md) · [为什么做 ZRemote?](#-为什么做-zremote) · [功能](#-功能) · [快速开始](#-快速开始) · [架构](#-架构) · [路线图](#️-路线图)
 
 [![Release](https://img.shields.io/github/v/release/opensymph/ZRemote?style=flat-square&logo=github&color=blue)](https://github.com/opensymph/ZRemote/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/opensymph/ZRemote/ci.yml?style=flat-square&label=build)](https://github.com/opensymph/ZRemote/actions/workflows/ci.yml)
@@ -25,9 +25,8 @@
 
 ## 💡 为什么做 ZRemote?
 
-[zemote](https://github.com/HumanAILoop/zemote) 证明了第三方 ZCode 远程客户端是可行的 —— 代价是复刻整套私有协议:relay 握手、HMAC-SHA256 配对证明、rpc-frame 分片、IPC 编解码、V4 快照/增量。
-
-它是一份令人敬佩的逆向工程,也是一台跑步机:智谱每动一次协议,协议客户端就碎一次,直到有人重新移植。
+第三方 ZCode 远程客户端通常要复刻私有协议 —— relay 握手、配对证明、帧传输、会话快照。
+工程上很硬核,也很脆:协议每变一次,客户端就碎一次,直到有人重新移植整套栈。
 
 **ZRemote 押了相反的方向:一行协议都不实现。** 它是一个启动器 —— 干净的设备列表 + 打开官方 Web 远程页的内嵌浏览器。协议归智谱,升级归智谱,ZRemote 只负责指过去。
 
@@ -38,7 +37,7 @@
 - 🎨 **像素级官方主题** —— 设计 token 直接从官方 bundle 提取(中性灰 + 天空蓝,深色 `#161616`),看上去就是一家人。
 - 🔐 **凭据只留在手机上** —— 设备 URL 只存本地,没有服务器、没有埋点、没有账号。
 
-> *zemote 是给重度用户的客户端,ZRemote 是永远不会坏的那个。*
+> *永远不会坏的远程客户端。*
 
 觉得靠谱?给个 **Star ⭐** 持续关注。
 
@@ -54,25 +53,6 @@
 | 🎨 **官方设计 token** | 从官方 bundle 提取的中性灰阶 + 天空蓝;深色 `#161616` 默认,浅色、跟随系统 |
 | 🌗 **主题切换** | 深色 / 浅色 / 跟随系统,持久化;默认深色,和官方页一致 |
 | 📱 **Android + iOS** | 一套代码双平台,相机 / 相册权限已配好 |
-
----
-
-## ⚔️ ZRemote vs zemote
-
-诚实对比,按需选用。zemote 同样值得一颗 Star。
-
-| | **ZRemote** | **[zemote](https://github.com/HumanAILoop/zemote)** |
-|---|---|---|
-| 思路 | URL 启动器 + 官方 Web 远程 | 完整协议复刻 |
-| 智谱改协议后 | ✅ 重扫一次码,App 不动 | ⚠️ 需要更新协议层 |
-| 远程界面 | 官方 Web 页(永远最新) | 原生重实现 |
-| 原生对话 / 流式 UI | ❌ 走 Web 页 | ✅ 原生 |
-| 后台 / 推送通知 | ❌ | ✅ Android |
-| 多设备管理 | ✅ 列表 + JSON 备份 | ✅ 列表 + 实时连接状态 |
-| 需要维护的代码 | 约 1k 行,无协议 | relay + rpc-frame + IPC + V4 全套 |
-| 离线配对状态 | WebView 存储保留 | 原生配对 |
-| Android | ✅ | ✅ |
-| iOS | ✅ 需在 Mac 上打包 | ⚠️ 未验证 |
 
 ---
 
@@ -143,11 +123,13 @@ lib/
 │   └── id.dart                # UUID
 ├── state/
 │   └── device_store.dart      # 设备模型 + 持久化 + 导入导出
-└── ui/
-    ├── theme.dart             # 官方设计 token + 深浅主题
-    ├── devices_page.dart      # 设备列表
-    ├── qr_scan_page.dart      # 相机 + 相册扫码
-    └── remote_page.dart       # 全屏 WebView 远程页
+├── ui/
+│   ├── theme.dart             # 官方设计 token + 深浅主题
+│   ├── devices_page.dart      # 设备列表
+│   ├── qr_scan_page.dart      # 相机 + 相册扫码
+│   └── remote_page.dart       # 全屏 WebView 远程页
+└── tool/
+    └── icon_gen.dart          # 重新生成应用图标
 ```
 
 ---
@@ -179,7 +161,6 @@ flutter test      # 全部通过
 
 ## 🙏 致谢
 
-- **[zemote](https://github.com/HumanAILoop/zemote)** —— 本项目参考的先行者;URL 解析器、扫码流程、存储模式改编自它。MIT。
 - **ZCode 与官方 Web 远程** —— 真正的远程体验与全部协议能力都在那里。
 - Flutter 生态:`flutter_inappwebview`、`mobile_scanner`、`zxing2`、`shared_preferences`、`url_launcher`。
 
