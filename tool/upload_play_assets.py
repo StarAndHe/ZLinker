@@ -25,6 +25,10 @@ def up(lang, kind, path):
 
 for lang in ['zh-CN', 'en-US']:
     up(lang, 'icon', f'{DIR}/icon/play-icon-512.png')
+
+# re-upload icon explicitly in case first pass raced with listing creation
+for lang in ['zh-CN', 'en-US']:
+    up(lang, 'icon', f'{DIR}/icon/play-icon-512.png')
 for f in sorted(os.listdir(f'{DIR}/screenshots/phone')):
     lang = 'zh-CN' if '-zh.' in f else 'en-US'
     up(lang, 'phoneScreenshots', f'{DIR}/screenshots/phone/{f}')
