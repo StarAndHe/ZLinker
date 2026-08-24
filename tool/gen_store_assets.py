@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate App Store / Google Play marketing assets for ZRemote.
+"""Generate App Store / Google Play marketing assets for ZLinker.
 
 Outputs (under docs/store/):
   appstore/icon/app-icon-1024.png            1024x1024, no alpha
@@ -11,13 +11,15 @@ Outputs (under docs/store/):
   googleplay/screenshots/tablet/*.png        1920x1200  (en + zh)
 
 Source art: assets/icon/icon.png and the real app captures in
-docs/screenshots/. Brand tokens mirror lib/ui/theme.dart.
+docs/screenshots/. Brand tokens mirror lib/ui/theme.dart (dark #161616,
+slate orbit ring, sky #38BDF8 accent, white Z_ glyph).
 
 Run:  python3 tool/gen_store_assets.py
 Deps: Pillow  (pip install Pillow)
 """
 from __future__ import annotations
 
+import math
 import os
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
@@ -25,17 +27,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "store")
 SHOTS = os.path.join(ROOT, "docs", "screenshots")
 ICON_SRC = os.path.join(ROOT, "assets", "icon", "icon.png")
+APP = "ZLinker"
 
-# ── Brand tokens (from lib/ui/theme.dart) ───────────────────────────────
-BG_TOP = (13, 13, 13)          # near-black top of gradient
-BG_BOTTOM = (22, 22, 22)       # official dark background #161616
-CARD = (34, 34, 34)            # #222 card surface
-CARD_BORDER = (58, 65, 80)     # ring slate #3A4150
+# ── Brand tokens ────────────────────────────────────────────────────────
+BG_TOP = (9, 12, 18)           # deep navy-black
+BG_BOTTOM = (18, 21, 28)       # dark, a touch of blue over #161616
+CARD = (32, 35, 43)            # elevated card surface
+CARD_BORDER = (60, 68, 84)     # slate orbit ring #3A4150-ish
 SKY = (56, 189, 248)           # sky-400 #38BDF8
 SKY_DEEP = (14, 165, 233)      # sky-500 #0EA5E9
-WHITE = (245, 245, 245)
-MUTED = (163, 163, 163)        # neutral-400
-DIM = (115, 115, 115)          # neutral-500
+INDIGO = (99, 102, 241)        # indigo-500 (secondary glow)
+WHITE = (245, 246, 248)
+MUTED = (168, 174, 186)        # cool neutral
+DIM = (120, 126, 138)
 
 FONT_DIR = "/usr/share/fonts/truetype/macos"
 CJK_FONT = "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
@@ -53,58 +57,104 @@ def font(weight: str, size: int, lang: str = "en") -> ImageFont.FreeTypeFont:
     return ImageFont.truetype(os.path.join(FONT_DIR, files[weight]), size)
 
 
-# ── low-level drawing helpers ───────────────────────────────────────────
-def gradient_bg(w: int, h: int) -> Image.Image:
-    """Vertical dark gradient with a soft sky glow in the upper area."""
-    base = Image.new("RGB", (w, h), BG_BOTTOM)
-    top = Image.new("RGB", (1, h))
-    tp = top.load()
+def is_zh(lang):
+    return lang == "zh"
+
+
+# ── gradients & backgrounds ─────────────────────────────────────────────
+def _vgrad(w, h, top, bottom):
+    col = Image.new("RGB", (1, h))
+    px = col.load()
     for y in range(h):
         t = y / max(1, h - 1)
-        tp[0, y] = tuple(int(BG_TOP[i] + (BG_BOTTOM[i] - BG_TOP[i]) * t) for i in range(3))
-    base = top.resize((w, h))
-
-    glow = Image.new("L", (w, h), 0)
-    gd = ImageDraw.Draw(glow)
-    cx, cy = int(w * 0.5), int(h * 0.12)
-    r = int(w * 0.75)
-    gd.ellipse([cx - r, cy - r, cx + r, cy + r], fill=70)
-    glow = glow.filter(ImageFilter.GaussianBlur(w * 0.18))
-    sky_layer = Image.new("RGB", (w, h), SKY_DEEP)
-    base = Image.composite(sky_layer, base, glow)
-    return base
+        px[0, y] = tuple(int(top[i] + (bottom[i] - top[i]) * t) for i in range(3))
+    return col.resize((w, h))
 
 
-def rounded_mask(size, radius) -> Image.Image:
+def _radial_glow(w, h, cx, cy, radius, color, strength):
+    m = Image.new("L", (w, h), 0)
+    d = ImageDraw.Draw(m)
+    d.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=strength)
+    m = m.filter(ImageFilter.GaussianBlur(radius * 0.55))
+    layer = Image.new("RGB", (w, h), color)
+    return layer, m
+
+
+def orbit_decor(w, h, cx, cy, base_r, alpha=26):
+    """Faint concentric rings + one sky arc, echoing the app icon."""
+    ov = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(ov)
+    lw = max(2, int(base_r * 0.012))
+    for i, mult in enumerate((1.0, 0.72, 0.46)):
+        r = int(base_r * mult)
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(*CARD_BORDER, alpha), width=lw)
+    r = int(base_r * 1.0)
+    d.arc([cx - r, cy - r, cx + r, cy + r], start=-120, end=-20,
+          fill=(*SKY, alpha + 40), width=lw + 2)
+    return ov.filter(ImageFilter.GaussianBlur(1.2))
+
+
+def background(w, h, glow="tl"):
+    base = _vgrad(w, h, BG_TOP, BG_BOTTOM).convert("RGB")
+    # primary sky glow
+    if glow == "tl":
+        sx, sy = int(w * 0.22), int(h * 0.08)
+    else:
+        sx, sy = int(w * 0.5), int(h * 0.1)
+    layer, mask = _radial_glow(w, h, sx, sy, int(w * 0.78), SKY_DEEP, 60)
+    base = Image.composite(layer, base, mask)
+    # secondary indigo glow bottom-right
+    layer2, mask2 = _radial_glow(w, h, int(w * 0.92), int(h * 0.92),
+                                 int(w * 0.7), INDIGO, 42)
+    base = Image.composite(layer2, base, mask2)
+    canvas = base.convert("RGBA")
+    canvas.alpha_composite(orbit_decor(w, h, int(w * 0.9), int(h * 0.14), int(w * 0.46)))
+    return canvas
+
+
+# ── shape helpers ───────────────────────────────────────────────────────
+def rounded_mask(size, radius):
     m = Image.new("L", size, 0)
     ImageDraw.Draw(m).rounded_rectangle([0, 0, size[0] - 1, size[1] - 1], radius=radius, fill=255)
     return m
 
 
-def drop_shadow(canvas: Image.Image, box, radius, blur, alpha=150, offset=(0, 28)):
+def drop_shadow(canvas, box, radius, blur, alpha=170, offset=(0, 30)):
     w, h = canvas.size
     sh = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(sh)
     x0, y0, x1, y1 = box
-    sd.rounded_rectangle([x0 + offset[0], y0 + offset[1], x1 + offset[0], y1 + offset[1]],
-                         radius=radius, fill=(0, 0, 0, alpha))
-    sh = sh.filter(ImageFilter.GaussianBlur(blur))
-    canvas.alpha_composite(sh)
+    ImageDraw.Draw(sh).rounded_rectangle(
+        [x0 + offset[0], y0 + offset[1], x1 + offset[0], y1 + offset[1]],
+        radius=radius, fill=(0, 0, 0, alpha))
+    canvas.alpha_composite(sh.filter(ImageFilter.GaussianBlur(blur)))
 
 
-def paste_rounded(canvas, img, xy, radius, border=None, border_w=0):
-    mask = rounded_mask(img.size, radius)
-    canvas.paste(img, xy, mask)
-    if border:
-        d = ImageDraw.Draw(canvas)
-        x, y = xy
-        d.rounded_rectangle([x, y, x + img.size[0] - 1, y + img.size[1] - 1],
-                            radius=radius, outline=border, width=border_w)
+def rim_glow(canvas, box, radius, color=SKY, blur=None, alpha=120, grow=None):
+    """Soft colored halo around a rounded box, to lift dark device frames."""
+    w, h = canvas.size
+    grow = grow if grow is not None else int((box[2] - box[0]) * 0.03)
+    blur = blur if blur is not None else int((box[2] - box[0]) * 0.05)
+    gl = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(gl).rounded_rectangle(
+        [box[0] - grow, box[1] - grow, box[2] + grow, box[3] + grow],
+        radius=radius + grow, fill=(*color, alpha))
+    canvas.alpha_composite(gl.filter(ImageFilter.GaussianBlur(blur)))
+
+
+def paste_rounded(canvas, img, xy, radius):
+    canvas.paste(img, xy, rounded_mask(img.size, radius))
+
+
+def load_icon(size):
+    ic = Image.open(ICON_SRC).convert("RGBA")
+    bg = Image.new("RGBA", ic.size, (*BG_BOTTOM, 255))
+    ic = Image.alpha_composite(bg, ic)
+    return ic.resize((size, size), Image.LANCZOS)
 
 
 # ── text helpers ────────────────────────────────────────────────────────
 def wrap(draw, text, fnt, max_w, lang):
-    if lang == "zh":
+    if is_zh(lang):
         lines, cur = [], ""
         for ch in text:
             if ch == "\n":
@@ -116,132 +166,161 @@ def wrap(draw, text, fnt, max_w, lang):
         if cur:
             lines.append(cur)
         return lines
-    lines, cur = [], ""
-    for word in text.split():
-        trial = (cur + " " + word).strip()
-        if draw.textlength(trial, font=fnt) <= max_w:
-            cur = trial
-        else:
-            lines.append(cur); cur = word
-    if cur:
+    lines = []
+    for para in text.split("\n"):
+        cur = ""
+        for word in para.split():
+            trial = (cur + " " + word).strip()
+            if draw.textlength(trial, font=fnt) <= max_w:
+                cur = trial
+            else:
+                lines.append(cur); cur = word
         lines.append(cur)
     return lines
 
 
-def draw_block(draw, text, fnt, fill, x, y, max_w, lang, leading=1.18,
+def draw_block(draw, text, fnt, fill, x, y, max_w, lang, leading=1.2,
                align="left", stroke=0, stroke_fill=None):
     lines = wrap(draw, text, fnt, max_w, lang)
     asc, desc = fnt.getmetrics()
     lh = int((asc + desc) * leading)
     for i, ln in enumerate(lines):
         lw = draw.textlength(ln, font=fnt)
-        if align == "center":
-            lx = x + (max_w - lw) / 2
-        elif align == "right":
-            lx = x + (max_w - lw)
-        else:
-            lx = x
+        lx = x + (max_w - lw) / 2 if align == "center" else x
         draw.text((lx, y + i * lh), ln, font=fnt, fill=fill,
                   stroke_width=stroke, stroke_fill=stroke_fill)
     return y + len(lines) * lh
 
 
-def load_icon(size: int) -> Image.Image:
-    ic = Image.open(ICON_SRC).convert("RGBA")
-    bg = Image.new("RGBA", ic.size, (*BG_BOTTOM, 255))
-    ic = Image.alpha_composite(bg, ic)
-    return ic.resize((size, size), Image.LANCZOS)
+def draw_title_rich(draw, title, highlight, weight, size, cx, y, max_w, lang):
+    """One-line centered title with `highlight` substring colored sky.
+    Autofits the font down until it fits max_w."""
+    while size > 16:
+        fnt = font(weight, size, lang)
+        if draw.textlength(title, font=fnt) <= max_w:
+            break
+        size -= 2
+    fnt = font(weight, size, lang)
+    stroke = 2 if is_zh(lang) else 0
+    if highlight and highlight in title:
+        i = title.index(highlight)
+        segs = [(title[:i], WHITE), (highlight, SKY), (title[i + len(highlight):], WHITE)]
+    else:
+        segs = [(title, WHITE)]
+    total = sum(draw.textlength(s, font=fnt) for s, _ in segs)
+    x = cx - total / 2
+    for s, col in segs:
+        draw.text((x, y), s, font=fnt, fill=col,
+                  stroke_width=stroke, stroke_fill=col if stroke else None)
+        x += draw.textlength(s, font=fnt)
+    asc, desc = fnt.getmetrics()
+    return y + int((asc + desc) * 1.1)
+
+
+def gradient_text(canvas, text, fnt, center, top_color, bottom_color):
+    w, h = canvas.size
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).text(center, text, font=fnt, fill=255, anchor="mm")
+    bbox = mask.getbbox()
+    grad = _vgrad(w, h, top_color, bottom_color)
+    if bbox:
+        # vertical gradient limited to the glyph band for punchier color
+        band = _vgrad(w, bbox[3] - bbox[1] + 1, top_color, bottom_color)
+        grad = Image.new("RGB", (w, h), bottom_color)
+        grad.paste(band, (0, bbox[1]))
+    canvas.paste(grad, (0, 0), mask)
 
 
 # ── device frames ───────────────────────────────────────────────────────
-def phone_frame(shot: Image.Image, target_w: int) -> Image.Image:
-    """Wrap a portrait screenshot in a phone bezel; returns RGBA."""
-    bezel = max(10, int(target_w * 0.035))
+def phone_frame(shot, target_w):
+    bezel = max(10, int(target_w * 0.033))
     inner_w = target_w - 2 * bezel
     inner_h = int(inner_w * shot.size[1] / shot.size[0])
     shot = shot.convert("RGB").resize((inner_w, inner_h), Image.LANCZOS)
-    frame_w = target_w
-    frame_h = inner_h + 2 * bezel
-    r_out = int(target_w * 0.13)
-    frame = Image.new("RGBA", (frame_w, frame_h), (0, 0, 0, 0))
-    body = Image.new("RGBA", (frame_w, frame_h), (8, 8, 8, 255))
-    frame.paste(body, (0, 0), rounded_mask((frame_w, frame_h), r_out))
-    paste_rounded(frame, shot, (bezel, bezel), max(4, r_out - bezel))
-    ImageDraw.Draw(frame).rounded_rectangle(
-        [0, 0, frame_w - 1, frame_h - 1], radius=r_out, outline=CARD_BORDER, width=max(2, bezel // 5))
+    fw, fh = target_w, inner_h + 2 * bezel
+    r = int(target_w * 0.135)
+    frame = Image.new("RGBA", (fw, fh), (0, 0, 0, 0))
+    frame.paste(Image.new("RGBA", (fw, fh), (6, 7, 9, 255)), (0, 0), rounded_mask((fw, fh), r))
+    paste_rounded(frame, shot, (bezel, bezel), max(4, r - bezel))
+    d = ImageDraw.Draw(frame)
+    d.rounded_rectangle([0, 0, fw - 1, fh - 1], radius=r, outline=CARD_BORDER, width=max(2, bezel // 4))
+    # notch pill
+    nw, nh = int(fw * 0.30), int(bezel * 0.85)
+    nx = (fw - nw) // 2
+    d.rounded_rectangle([nx, bezel - nh // 2, nx + nw, bezel + nh // 2], radius=nh, fill=(6, 7, 9, 255))
     return frame
 
 
-def browser_frame(shot: Image.Image, target_w: int) -> Image.Image:
-    """Wrap a landscape screenshot in a browser/tablet window; returns RGBA."""
+def browser_frame(shot, target_w):
     pad = max(2, int(target_w * 0.006))
-    bar = int(target_w * 0.045)
+    bar = int(target_w * 0.05)
     inner_w = target_w - 2 * pad
     inner_h = int(inner_w * shot.size[1] / shot.size[0])
     shot = shot.convert("RGB").resize((inner_w, inner_h), Image.LANCZOS)
-    frame_w = target_w
-    frame_h = inner_h + bar + pad
-    r = int(target_w * 0.025)
-    frame = Image.new("RGBA", (frame_w, frame_h), (0, 0, 0, 0))
-    body = Image.new("RGBA", (frame_w, frame_h), (28, 30, 34, 255))
-    frame.paste(body, (0, 0), rounded_mask((frame_w, frame_h), r))
+    fw, fh = target_w, inner_h + bar + pad
+    r = int(target_w * 0.022)
+    frame = Image.new("RGBA", (fw, fh), (0, 0, 0, 0))
+    frame.paste(Image.new("RGBA", (fw, fh), (26, 28, 34, 255)), (0, 0), rounded_mask((fw, fh), r))
     d = ImageDraw.Draw(frame)
     cy = bar // 2
     for i, col in enumerate([(255, 95, 86), (255, 189, 46), (39, 201, 63)]):
-        dotx = int(bar * 0.6) + i * int(bar * 0.5)
-        rr = max(4, int(bar * 0.13))
-        d.ellipse([dotx - rr, cy - rr, dotx + rr, cy + rr], fill=col)
-    # square-ish top corners for the screen area under the bar
-    frame.paste(shot, (pad, bar), )
-    d.rounded_rectangle([0, 0, frame_w - 1, frame_h - 1], radius=r, outline=CARD_BORDER, width=max(2, pad))
+        dx = int(bar * 0.6) + i * int(bar * 0.5)
+        rr = max(4, int(bar * 0.12))
+        d.ellipse([dx - rr, cy - rr, dx + rr, cy + rr], fill=col)
+    frame.paste(shot, (pad, bar))
+    d.rounded_rectangle([0, 0, fw - 1, fh - 1], radius=r, outline=CARD_BORDER, width=max(2, pad))
     return frame
 
 
-def wordmark(canvas, cx, y, lang, scale=1.0):
-    """Small centered brand lockup: ring icon + ZRemote."""
-    isz = int(64 * scale)
+def wordmark(canvas, cx, y, scale=1.0):
+    """Icon + ZLinker + sky underline accent."""
+    isz = int(66 * scale)
     ic = load_icon(isz)
     fnt = font("bold", int(46 * scale))
     d = ImageDraw.Draw(canvas)
-    tw = d.textlength("ZRemote", font=fnt)
+    tw = d.textlength(APP, font=fnt)
     total = isz + int(18 * scale) + tw
     x = int(cx - total / 2)
     canvas.alpha_composite(ic.convert("RGBA"), (x, int(y)))
-    d.text((x + isz + int(18 * scale), int(y + isz / 2 - int(46 * scale) * 0.62)),
-           "ZRemote", font=fnt, fill=WHITE)
+    tx = x + isz + int(18 * scale)
+    ty = int(y + isz / 2 - int(46 * scale) * 0.62)
+    d.text((tx, ty), APP, font=fnt, fill=WHITE)
+    uy = int(y + isz + 6 * scale)
+    d.rounded_rectangle([tx, uy, tx + tw, uy + max(2, int(4 * scale))],
+                        radius=int(2 * scale), fill=SKY)
 
 
-# ── slide builders ──────────────────────────────────────────────────────
+# ── content ─────────────────────────────────────────────────────────────
 CAPTIONS = {
     "tasks": {
-        "en": ("Every task, live", "Running state, reply previews and stop \u00b7 pause \u00b7 resume \u2014 from your phone."),
-        "zh": ("\u4efb\u52a1\uff0c\u5b9e\u65f6\u638c\u63e1", "\u8fd0\u884c\u72b6\u6001\u3001\u56de\u590d\u9884\u89c8\uff0c\u505c\u6b62 \u00b7 \u6682\u505c \u00b7 \u6062\u590d\uff0c\u5c3d\u5728\u624b\u673a\u3002"),
+        "en": ("Every task, live", "live", "Running state, reply previews, and stop \u00b7 pause \u00b7 resume \u2014 right from your phone."),
+        "zh": ("\u4efb\u52a1\uff0c\u5b9e\u65f6\u638c\u63e1", "\u5b9e\u65f6", "\u8fd0\u884c\u72b6\u6001\u3001\u56de\u590d\u9884\u89c8\uff0c\u505c\u6b62 \u00b7 \u6682\u505c \u00b7 \u6062\u590d\uff0c\u968f\u624b\u5b8c\u6210\u3002"),
     },
     "conversation": {
-        "en": ("Native conversations", "Streaming replies, tool diffs and model switching \u2014 no browser."),
-        "zh": ("\u539f\u751f\u5bf9\u8bdd\u4f53\u9a8c", "\u6d41\u5f0f\u56de\u590d\u3001\u5de5\u5177 diff\u3001\u6a21\u578b\u5207\u6362\uff0c\u65e0\u9700\u7f51\u9875\u3002"),
+        "en": ("Native conversations", "Native", "Streaming replies, tool diffs and model switching \u2014 no browser needed."),
+        "zh": ("\u539f\u751f\u5bf9\u8bdd\u4f53\u9a8c", "\u539f\u751f", "\u6d41\u5f0f\u56de\u590d\u3001\u5de5\u5177 diff\u3001\u6a21\u578b\u5207\u6362\uff0c\u65e0\u9700\u7f51\u9875\u3002"),
     },
     "dualpane": {
-        "en": ("Desktop-class on tablet", "A sidebar + chat dual-pane above 768dp."),
-        "zh": ("\u5e73\u677f\u4e0a\u7684\u684c\u9762\u7ea7\u5e03\u5c40", "768dp \u4ee5\u4e0a\uff0c\u4fa7\u680f + \u5bf9\u8bdd\u53cc\u680f\u5e76\u6392\u3002"),
+        "en": ("Desktop-class on tablet", "Desktop-class", "Sidebar + chat, side by side above 768dp."),
+        "zh": ("\u5e73\u677f\u4e0a\u7684\u684c\u9762\u7ea7\u5e03\u5c40", "\u684c\u9762\u7ea7", "768dp \u4ee5\u4e0a\uff0c\u4fa7\u680f + \u5bf9\u8bdd\u53cc\u680f\u5e76\u6392\u3002"),
     },
 }
 
 HERO = {
-    "en": ("Your ZCode agent,\nin your pocket",
+    "en": ("Your ZCode coding agent,\nnow in your pocket.",
            ["Live tasks", "Automations", "Off-peak", "Notifications"]),
-    "zh": ("\u628a ZCode \u667a\u80fd\u4f53\n\u88c5\u8fdb\u53e3\u888b",
+    "zh": ("\u628a ZCode \u7f16\u7a0b\u667a\u80fd\u4f53\n\u88c5\u8fdb\u53e3\u888b\u3002",
            ["\u5b9e\u65f6\u4efb\u52a1", "\u5b9a\u65f6\u81ea\u52a8\u5316", "\u95f2\u65f6\u4efb\u52a1", "\u672c\u5730\u901a\u77e5"]),
 }
 
 FEATURES = {
-    "en": ("Built for real work", [
+    "en": ("Built for real work", "real work", [
         ("Scheduled automations", "cron \u00b7 intervals \u00b7 one-shot"),
         ("Off-peak tasks", "free compute, live queue position"),
         ("Push notifications", "tap to open the conversation"),
         ("Privacy first", "device links stay on your phone"),
     ]),
-    "zh": ("\u4e3a\u771f\u5b9e\u5de5\u4f5c\u800c\u751f", [
+    "zh": ("\u4e3a\u771f\u5b9e\u5de5\u4f5c\u800c\u751f", "\u771f\u5b9e\u5de5\u4f5c", [
         ("\u5b9a\u65f6\u81ea\u52a8\u5316", "cron \u00b7 \u56fa\u5b9a\u95f4\u9694 \u00b7 \u4e00\u6b21\u6027"),
         ("\u95f2\u65f6\u4efb\u52a1", "\u514d\u8d39\u7b97\u529b\uff0c\u6392\u961f\u5b9e\u65f6\u53ef\u89c1"),
         ("\u63a8\u9001\u901a\u77e5", "\u70b9\u6309\u76f4\u8fbe\u5bf9\u8bdd"),
@@ -250,165 +329,167 @@ FEATURES = {
 }
 
 
+# ── slides ──────────────────────────────────────────────────────────────
 def showcase_portrait(w, h, shot_path, key, lang):
-    canvas = gradient_bg(w, h).convert("RGBA")
+    canvas = background(w, h)
     d = ImageDraw.Draw(canvas)
-    title, sub = CAPTIONS[key][lang]
+    title, hl, sub = CAPTIONS[key][lang]
     margin = int(w * 0.085)
-    y = int(h * 0.06)
-    hf = font("bold", int(w * 0.078), lang)
-    y = draw_block(d, title, hf, WHITE, margin, y, w - 2 * margin, lang,
-                   align="center", leading=1.1,
-                   stroke=2 if lang == "zh" else 0, stroke_fill=WHITE)
-    y += int(h * 0.012)
-    sf = font("medium", int(w * 0.038), lang)
-    y = draw_block(d, sub, sf, MUTED, margin, y, w - 2 * margin, lang,
-                   align="center", leading=1.25)
+    y = draw_title_rich(d, title, hl, "bold", int(w * 0.082),
+                        w / 2, int(h * 0.058), w - 2 * margin, lang)
+    y += int(h * 0.006)
+    draw_block(d, sub, font("medium", int(w * 0.036), lang), MUTED,
+               margin, y, w - 2 * margin, lang, align="center", leading=1.3)
 
     shot = Image.open(shot_path)
-    frame = phone_frame(shot, int(w * 0.74))
+    frame = phone_frame(shot, int(w * 0.72))
     fx = (w - frame.size[0]) // 2
     fy = int(h * 0.30)
-    if fy + frame.size[1] > h * 0.93:
-        frame = phone_frame(shot, int((h * 0.93 - fy) * shot.size[0] / shot.size[1] * 0.96))
+    if fy + frame.size[1] > h * 0.92:
+        frame = phone_frame(shot, int((h * 0.92 - fy) * shot.size[0] / shot.size[1] * 0.96))
         fx = (w - frame.size[0]) // 2
-    drop_shadow(canvas, [fx, fy, fx + frame.size[0], fy + frame.size[1]],
-                int(w * 0.096), int(w * 0.04))
+    box = [fx, fy, fx + frame.size[0], fy + frame.size[1]]
+    r = int(frame.size[0] * 0.135)
+    drop_shadow(canvas, box, r, int(w * 0.045))
+    rim_glow(canvas, box, r, SKY, alpha=95)
     canvas.alpha_composite(frame, (fx, fy))
-    wordmark(canvas, w / 2, h * 0.945, lang, scale=w / 1290 * 0.9)
+    wordmark(canvas, w / 2, h * 0.94, scale=w / 1290 * 0.92)
     return canvas.convert("RGB")
 
 
 def showcase_landscape(w, h, shot_path, key, lang):
-    canvas = gradient_bg(w, h).convert("RGBA")
+    canvas = background(w, h, glow="top")
     d = ImageDraw.Draw(canvas)
-    title, sub = CAPTIONS[key][lang]
-    margin = int(w * 0.06)
-    y = int(h * 0.055)
-    hf = font("bold", int(w * 0.036), lang)
-    y = draw_block(d, title, hf, WHITE, margin, y, w - 2 * margin, lang,
-                   align="center", leading=1.1,
-                   stroke=2 if lang == "zh" else 0, stroke_fill=WHITE)
-    y += int(h * 0.01)
-    sf = font("medium", int(w * 0.019), lang)
-    draw_block(d, sub, sf, MUTED, margin, y, w - 2 * margin, lang, align="center")
+    title, hl, sub = CAPTIONS[key][lang]
+    y = draw_title_rich(d, title, hl, "bold", int(w * 0.038),
+                        w / 2, int(h * 0.055), int(w * 0.86), lang)
+    y += int(h * 0.006)
+    draw_block(d, sub, font("medium", int(w * 0.019), lang), MUTED,
+               int(w * 0.07), y, int(w * 0.86), lang, align="center")
 
-    # Fit the browser frame into the band between the caption and the wordmark.
     shot = Image.open(shot_path)
-    avail_top = int(h * 0.24)
-    avail_h = int(h * 0.66)
+    avail_top, avail_h = int(h * 0.24), int(h * 0.64)
     frame = browser_frame(shot, int(w * 0.80))
     if frame.size[1] > avail_h:
         frame = browser_frame(shot, int(w * 0.80 * avail_h / frame.size[1]))
     fx = (w - frame.size[0]) // 2
     fy = avail_top + (avail_h - frame.size[1]) // 2
-    drop_shadow(canvas, [fx, fy, fx + frame.size[0], fy + frame.size[1]],
-                int(w * 0.02), int(w * 0.02))
+    box = [fx, fy, fx + frame.size[0], fy + frame.size[1]]
+    r = int(frame.size[0] * 0.022)
+    drop_shadow(canvas, box, r, int(w * 0.02))
+    rim_glow(canvas, box, r, SKY, alpha=80)
     canvas.alpha_composite(frame, (fx, fy))
-    wordmark(canvas, w / 2, h * 0.945, lang, scale=w / 2752 * 1.4)
+    wordmark(canvas, w / 2, h * 0.95, scale=w / 2752 * 1.4)
     return canvas.convert("RGB")
 
 
 def hero_slide(w, h, lang):
-    canvas = gradient_bg(w, h).convert("RGBA")
+    canvas = background(w, h, glow="top")
     d = ImageDraw.Draw(canvas)
-    isz = int(w * 0.42)
+    isz = int(w * 0.44)
     ic = load_icon(isz)
-    ix = (w - isz) // 2
-    iy = int(h * 0.18)
-    drop_shadow(canvas, [ix, iy, ix + isz, iy + isz], int(isz * 0.23), int(w * 0.05), alpha=170)
+    ix, iy = (w - isz) // 2, int(h * 0.15)
+    box = [ix, iy, ix + isz, iy + isz]
+    drop_shadow(canvas, box, int(isz * 0.23), int(w * 0.05), alpha=180)
+    rim_glow(canvas, box, int(isz * 0.23), SKY, alpha=110, grow=int(isz * 0.05), blur=int(w * 0.06))
     canvas.alpha_composite(ic.convert("RGBA"), (ix, iy))
 
-    d.text((w / 2, iy + isz + int(h * 0.045)), "ZRemote",
-           font=font("bold", int(w * 0.11)), fill=WHITE, anchor="mm")
+    # gradient wordmark
+    gradient_text(canvas, APP, font("bold", int(w * 0.125)),
+                  (w / 2, iy + isz + int(h * 0.055)), WHITE, SKY)
+    d = ImageDraw.Draw(canvas)
+    # accent underline under wordmark
+    tw = d.textlength(APP, font=font("bold", int(w * 0.125)))
+    uy = iy + isz + int(h * 0.055) + int(w * 0.075)
+    d.rounded_rectangle([w / 2 - tw * 0.28, uy, w / 2 + tw * 0.28, uy + int(w * 0.008)],
+                        radius=int(w * 0.004), fill=SKY)
 
     tag, chips = HERO[lang]
-    tf = font("medium", int(w * 0.05), lang)
-    ty = iy + isz + int(h * 0.085)
-    draw_block(d, tag, tf, SKY, int(w * 0.08), ty, int(w * 0.84), lang,
-               align="center", leading=1.22)
+    draw_block(d, tag, font("semibold", int(w * 0.05), lang), MUTED,
+               int(w * 0.08), uy + int(h * 0.03), int(w * 0.84), lang,
+               align="center", leading=1.26)
 
-    # feature chips
     cf = font("semibold", int(w * 0.032), lang)
-    cy = int(h * 0.80)
+    ch_h = int(w * 0.088)
     gap = int(w * 0.03)
-    ch_h = int(w * 0.085)
-    # two rows of two chips
-    rows = [chips[:2], chips[2:]]
-    for r, row in enumerate(rows):
-        widths = [d.textlength(c, font=cf) + int(w * 0.07) for c in row]
+    cy = int(h * 0.79)
+    for r_i, row in enumerate((chips[:2], chips[2:])):
+        widths = [d.textlength(c, font=cf) + int(w * 0.075) for c in row]
         total = sum(widths) + gap * (len(row) - 1)
         x = (w - total) / 2
-        yy = cy + r * (ch_h + int(h * 0.016))
+        yy = cy + r_i * (ch_h + int(h * 0.016))
         for c, cw in zip(row, widths):
             d.rounded_rectangle([x, yy, x + cw, yy + ch_h], radius=ch_h // 2,
                                 fill=CARD, outline=CARD_BORDER, width=2)
-            dotr = int(ch_h * 0.11)
-            dcx = x + int(w * 0.028)
-            d.ellipse([dcx - dotr, yy + ch_h / 2 - dotr, dcx + dotr, yy + ch_h / 2 + dotr], fill=SKY)
-            d.text((dcx + int(w * 0.02), yy + ch_h / 2), c, font=cf, fill=WHITE, anchor="lm")
+            dot = int(ch_h * 0.11)
+            dcx = x + int(w * 0.03)
+            d.ellipse([dcx - dot, yy + ch_h / 2 - dot, dcx + dot, yy + ch_h / 2 + dot], fill=SKY)
+            d.text((dcx + int(w * 0.022), yy + ch_h / 2), c, font=cf, fill=WHITE, anchor="lm")
             x += cw + gap
     return canvas.convert("RGB")
 
 
 def features_slide(w, h, lang):
-    canvas = gradient_bg(w, h).convert("RGBA")
+    canvas = background(w, h)
     d = ImageDraw.Draw(canvas)
-    title, items = FEATURES[lang]
-    margin = int(w * 0.085)
-    y = int(h * 0.08)
-    y = draw_block(d, title, font("bold", int(w * 0.082), lang), WHITE,
-                   margin, y, w - 2 * margin, lang, align="center", leading=1.1,
-                   stroke=2 if lang == "zh" else 0, stroke_fill=WHITE)
+    title, hl, items = FEATURES[lang]
+    y = draw_title_rich(d, title, hl, "bold", int(w * 0.082),
+                        w / 2, int(h * 0.075), int(w * 0.86), lang)
     y += int(h * 0.03)
-    card_x = margin
-    card_w = w - 2 * margin
-    card_h = int(h * 0.135)
+    cx0 = int(w * 0.08)
+    cw = w - 2 * cx0
+    ch = int(h * 0.138)
     gap = int(h * 0.028)
-    tf = font("semibold", int(w * 0.05), lang)
-    df = font("regular", int(w * 0.033), lang)
+    tf = font("semibold", int(w * 0.049), lang)
+    sf = font("regular", int(w * 0.033), lang)
     for i, (t, s) in enumerate(items):
-        yy = y + i * (card_h + gap)
-        d.rounded_rectangle([card_x, yy, card_x + card_w, yy + card_h],
-                            radius=int(w * 0.05), fill=CARD, outline=CARD_BORDER, width=2)
-        # accent square with number
-        sq = int(card_h * 0.56)
-        sx = card_x + int(w * 0.05)
-        sy = yy + (card_h - sq) // 2
-        d.rounded_rectangle([sx, sy, sx + sq, sy + sq], radius=int(sq * 0.28), fill=SKY_DEEP)
+        yy = y + i * (ch + gap)
+        d.rounded_rectangle([cx0, yy, cx0 + cw, yy + ch], radius=int(w * 0.05),
+                            fill=CARD, outline=CARD_BORDER, width=2)
+        sq = int(ch * 0.58)
+        sx, sy = cx0 + int(w * 0.05), yy + (ch - sq) // 2
+        # sky gradient tile
+        tile = _vgrad(sq, sq, SKY, SKY_DEEP).convert("RGBA")
+        canvas.paste(tile, (sx, sy), rounded_mask((sq, sq), int(sq * 0.3)))
         d.text((sx + sq / 2, sy + sq / 2), str(i + 1),
-               font=font("bold", int(sq * 0.55)), fill=(8, 20, 30), anchor="mm")
+               font=font("bold", int(sq * 0.5)), fill=(6, 18, 28), anchor="mm")
         tx = sx + sq + int(w * 0.05)
-        d.text((tx, yy + card_h * 0.30), t, font=tf, fill=WHITE, anchor="lm")
-        d.text((tx, yy + card_h * 0.66), s, font=df, fill=MUTED, anchor="lm")
-    wordmark(canvas, w / 2, h * 0.945, lang, scale=w / 1290 * 0.9)
+        d.text((tx, yy + ch * 0.32), t, font=tf, fill=WHITE, anchor="lm")
+        d.text((tx, yy + ch * 0.67), s, font=sf, fill=MUTED, anchor="lm")
+    wordmark(canvas, w / 2, h * 0.94, scale=w / 1290 * 0.92)
     return canvas.convert("RGB")
 
 
 def feature_graphic(lang):
     w, h = 1024, 500
-    canvas = gradient_bg(w, h).convert("RGBA")
+    canvas = background(w, h, glow="tl")
     d = ImageDraw.Draw(canvas)
     isz = 300
     ic = load_icon(isz)
-    ix, iy = 70, (h - isz) // 2
-    drop_shadow(canvas, [ix, iy, ix + isz, iy + isz], int(isz * 0.23), 30, alpha=150)
+    ix, iy = 74, (h - isz) // 2
+    box = [ix, iy, ix + isz, iy + isz]
+    drop_shadow(canvas, box, int(isz * 0.23), 28, alpha=160)
+    rim_glow(canvas, box, int(isz * 0.23), SKY, alpha=110, grow=14, blur=34)
     canvas.alpha_composite(ic.convert("RGBA"), (ix, iy))
+    d = ImageDraw.Draw(canvas)
     tx = ix + isz + 60
-    avail = w - tx - 48  # right padding
+    avail = w - tx - 44
 
     def fit(text, weight, start, lang):
         sz = start
         while sz > 12 and d.textlength(text, font=font(weight, sz, lang)) > avail:
             sz -= 2
-        return font(weight, sz, lang)
+        return sz
 
-    d.text((tx, 150), "ZRemote", font=fit("ZRemote", "bold", 120, "en"), fill=WHITE, anchor="lm")
+    gradient_text(canvas, APP, font("bold", fit(APP, "bold", 118, "en")),
+                  (tx + d.textlength(APP, font=font("bold", fit(APP, "bold", 118, "en"))) / 2, 158),
+                  WHITE, SKY)
+    d = ImageDraw.Draw(canvas)
     sub = {"en": "Remote for ZCode agents", "zh": "ZCode \u667a\u80fd\u4f53\u8fdc\u7a0b\u63a7\u5236"}[lang]
-    d.text((tx, 258), sub, font=fit(sub, "semibold", 46, lang), fill=SKY, anchor="lm")
+    d.text((tx, 262), sub, font=font("semibold", fit(sub, "semibold", 46, lang), lang), fill=SKY, anchor="lm")
     tags = {"en": "Tasks \u00b7 Automations \u00b7 Off-peak \u00b7 Notifications",
             "zh": "\u4efb\u52a1 \u00b7 \u81ea\u52a8\u5316 \u00b7 \u95f2\u65f6 \u00b7 \u901a\u77e5"}[lang]
-    d.text((tx, 322), tags, font=fit(tags, "medium", 32, lang), fill=MUTED, anchor="lm")
+    d.text((tx, 326), tags, font=font("medium", fit(tags, "medium", 32, lang), lang), fill=MUTED, anchor="lm")
     return canvas.convert("RGB")
 
 
@@ -422,18 +503,12 @@ def main():
     s_chat = os.path.join(SHOTS, "02-chat-mobile.png")
     s_dual = os.path.join(SHOTS, "03-dual-pane.png")
 
-    # ── icons ──
-    load_icon(1024).convert("RGB").save(
-        ensure(os.path.join(OUT, "appstore/icon/app-icon-1024.png")))
-    load_icon(512).convert("RGB").save(
-        ensure(os.path.join(OUT, "googleplay/icon/play-icon-512.png")))
+    load_icon(1024).convert("RGB").save(ensure(os.path.join(OUT, "appstore/icon/app-icon-1024.png")))
+    load_icon(512).convert("RGB").save(ensure(os.path.join(OUT, "googleplay/icon/play-icon-512.png")))
 
-    # ── feature graphics ──
     for lang in ("en", "zh"):
-        feature_graphic(lang).save(
-            ensure(os.path.join(OUT, f"googleplay/feature-graphic/feature-graphic-{lang}.png")))
+        feature_graphic(lang).save(ensure(os.path.join(OUT, f"googleplay/feature-graphic/feature-graphic-{lang}.png")))
 
-    # ── App Store iPhone 6.9" (1290x2796) ──
     W, H = 1290, 2796
     for lang in ("en", "zh"):
         hero_slide(W, H, lang).save(ensure(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/00-hero-{lang}.png")))
@@ -441,13 +516,10 @@ def main():
         showcase_portrait(W, H, s_chat, "conversation", lang).save(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/02-conversation-{lang}.png"))
         features_slide(W, H, lang).save(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/03-features-{lang}.png"))
 
-    # ── App Store iPad 13" (2752x2064) ──
     W, H = 2752, 2064
     for lang in ("en", "zh"):
-        showcase_landscape(W, H, s_dual, "dualpane", lang).save(
-            ensure(os.path.join(OUT, f"appstore/screenshots/ipad-13/01-dualpane-{lang}.png")))
+        showcase_landscape(W, H, s_dual, "dualpane", lang).save(ensure(os.path.join(OUT, f"appstore/screenshots/ipad-13/01-dualpane-{lang}.png")))
 
-    # ── Google Play phone (1080x2400) ──
     W, H = 1080, 2400
     for lang in ("en", "zh"):
         hero_slide(W, H, lang).save(ensure(os.path.join(OUT, f"googleplay/screenshots/phone/00-hero-{lang}.png")))
@@ -455,11 +527,9 @@ def main():
         showcase_portrait(W, H, s_chat, "conversation", lang).save(os.path.join(OUT, f"googleplay/screenshots/phone/02-conversation-{lang}.png"))
         features_slide(W, H, lang).save(os.path.join(OUT, f"googleplay/screenshots/phone/03-features-{lang}.png"))
 
-    # ── Google Play tablet (1920x1200) ──
     W, H = 1920, 1200
     for lang in ("en", "zh"):
-        showcase_landscape(W, H, s_dual, "dualpane", lang).save(
-            ensure(os.path.join(OUT, f"googleplay/screenshots/tablet/01-dualpane-{lang}.png")))
+        showcase_landscape(W, H, s_dual, "dualpane", lang).save(ensure(os.path.join(OUT, f"googleplay/screenshots/tablet/01-dualpane-{lang}.png")))
 
     print("Store assets written to", OUT)
 

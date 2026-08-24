@@ -1,6 +1,6 @@
 # Store materials
 
-Ready-to-upload listing assets (图片物料 + 文案物料) for **ZRemote**
+Ready-to-upload listing assets (图片物料 + 文案物料) for **ZLinker**
 (`org.songsong.zlinker`) on the App Store and Google Play. Both stores get
 bilingual copy (English `en-US` + 简体中文 `zh-Hans`) and matching graphics.
 
@@ -58,7 +58,7 @@ Editable Markdown with character counts against each store's field limits:
 
 The canonical fastlane submission text still lives in
 [`fastlane/metadata/`](../../fastlane/metadata); these files are the
-human-facing, annotated versions for the ZRemote rebrand.
+human-facing, annotated versions with per-field character counts.
 
 ## Regenerate the graphics
 
@@ -83,5 +83,5 @@ into `docs/screenshots/`, then rerun the generator.
 - The device-frame captions are marketing overlays. If a store rejects
   framed/annotated screenshots for a given slot, upload the raw captures in
   `docs/screenshots/` instead.
-- ZRemote is an independent community tool, not affiliated with Zhipu AI.
+- ZLinker is an independent community tool, not affiliated with Zhipu AI.
   Keep that disclaimer in the store description (already included in the copy).
