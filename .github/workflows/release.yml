@@ -36,7 +36,7 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > android/zremote-release.jks
           printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=zremote-release.jks\n' \
-            "$KEYSTORE_PASSWORD" "$KEY_PASSWORD" "$KEYSTORE_ALIAS" > android/key.properties
+            "$KEYSTORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > android/key.properties
 
       - name: Build APK (github channel)
         run: flutter build apk --release --dart-define=APP_CHANNEL=github
