@@ -26,6 +26,14 @@ tasks.register<Delete>("clean") {
 // All Kotlin sources (app + plugin subprojects like home_widget) must compile
 // with the same JVM target; home_widget inlines bytecode that requires 11+.
 subprojects {
+    // home_widget declares glance-appwidget "1.+"; on CI that resolves to
+    // 1.3.0-alpha02 which requires compileSdk 37. Pin the stable line —
+    // home_widget 0.8.x only uses 1.1-era APIs.
+    configurations.all {
+        resolutionStrategy {
+            force("androidx.glance:glance-appwidget:1.1.1")
+        }
+    }
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile>().configureEach {
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
