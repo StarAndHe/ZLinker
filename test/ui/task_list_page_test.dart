@@ -65,8 +65,11 @@ class FakeDeviceSession extends DeviceSession {
       ChatHandle(state: ConversationState(), close: () async {});
 
   @override
-  Future<WorkspacePrep> prepareWorkspace() async =>
-      WorkspacePrep.fromMap(const {});
+  Future<WorkspacePrep> prepareWorkspace() async => WorkspacePrep.fromMap({
+        'slashCommands': [
+          {'name': 'compact', 'description': '压缩上下文', 'source': 'builtin'},
+        ],
+      });
 
   @override
   Future<List<SkillEntry>> skills() async => const [];
@@ -355,7 +358,7 @@ void main() {
     expect(oldRow.color, Colors.transparent);
   });
 
-  testWidgets('dual-pane at ≥768: sidebar + divider, tap opens in pane',
+  testWidgets('dual-pane at ≥768: IDE sidebar + divider, tap opens in pane',
       (tester) async {
     useDesktop(tester);
     final (store, device) = await setupDevice();
@@ -383,26 +386,27 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    // Dual-pane chrome: sidebar + 1px divider + empty pane hint, no push.
-    expect(find.byType(VerticalDivider), findsOneWidget);
+    // Official IDE sidebar chrome — not the mobile card list.
+    expect(find.text('新建任务'), findsWidgets);
+    expect(find.text('搜索'), findsOneWidget);
+    expect(find.text('项目'), findsOneWidget);
     expect(find.text('选择左侧任务查看会话'), findsOneWidget);
+    expect(find.text('当前设备上的工作区和任务'), findsNothing);
 
     await tester.tap(find.text('修复登录'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pump(const Duration(milliseconds: 100));
 
-    // Chat embedded in the right pane (no route push, no back button in
-    // the chat app bar — the sidebar's own back button is the only one).
     expect(find.byType(ChatPage), findsOneWidget);
     expect(find.text('任务会话'), findsOneWidget);
     final chatPage = tester.widget<ChatPage>(find.byType(ChatPage));
     expect(chatPage.embedded, isTrue);
-    // List still visible side by side.
-    expect(find.text('当前设备上的工作区和任务'), findsOneWidget);
+    // Sidebar still visible side by side.
+    expect(find.text('项目'), findsOneWidget);
   });
 
-  testWidgets('single column below 768: no divider, mobile app bar',
+  testWidgets('single column below 768: official mobile header, no sidebar',
       (tester) async {
     usePhone(tester);
     final (store, device) = await setupDevice();
@@ -422,9 +426,42 @@ void main() {
     )));
     await tester.pumpAndSettle();
 
-    expect(find.byType(VerticalDivider), findsNothing);
-    expect(find.byType(AppBar), findsOneWidget);
+    expect(find.text('ZCode 远程控制'), findsOneWidget);
+    expect(find.text('已连接到当前桌面窗口'), findsOneWidget);
+    expect(find.text('当前设备上的工作区和任务'), findsOneWidget);
+    expect(find.text('项目'), findsNothing);
     expect(find.text('选择左侧任务查看会话'), findsNothing);
+  });
+
+  testWidgets('desktop search nav opens command palette and picks a slash',
+      (tester) async {
+    useDesktop(tester);
+    final (store, device) = await setupDevice();
+    final session = FakeDeviceSession(
+      deviceId: device.id,
+      params: device.params!,
+      entries: const [],
+      workspaces: [
+        {'workspacePath': '/repo/app'},
+      ],
+    );
+    await tester.pumpWidget(wrap(TaskListPage(
+      store: store,
+      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      device: device,
+      sessionOverride: session,
+    )));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('搜索'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('/compact'), findsOneWidget);
+    await tester.tap(find.text('/compact'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ChatPage), findsOneWidget);
+    expect(find.text('/compact'), findsWidgets);
   });
 
   testWidgets('767 stays single column, 768 goes dual-pane', (tester) async {
@@ -447,10 +484,10 @@ void main() {
       sessionOverride: session,
     )));
     await tester.pump();
-    expect(find.byType(VerticalDivider), findsNothing);
+    expect(find.text('项目'), findsNothing);
 
     tester.view.physicalSize = const Size(768, 844);
     await tester.pump();
-    expect(find.byType(VerticalDivider), findsOneWidget);
+    expect(find.text('项目'), findsOneWidget);
   });
 }

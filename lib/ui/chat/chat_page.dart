@@ -25,6 +25,13 @@ class ChatPage extends StatefulWidget {
   /// button in the app bar (there is no route to pop inside the pane).
   final bool embedded;
 
+  /// Pre-fill the composer (e.g. a slash command picked on the list page).
+  final String? initialComposerText;
+
+  /// Optional workspace chip shown next to the task title (official chat
+  /// second header row).
+  final String? workspaceLabel;
+
   const ChatPage({
     super.key,
     required this.gateway,
@@ -32,6 +39,8 @@ class ChatPage extends StatefulWidget {
     required this.title,
     this.theme,
     this.embedded = false,
+    this.initialComposerText,
+    this.workspaceLabel,
   });
 
   @override
@@ -76,6 +85,10 @@ class _ChatPageState extends State<ChatPage> {
   void initState() {
     super.initState();
     _sessionId = widget.sessionId;
+    final initial = widget.initialComposerText;
+    if (initial != null && initial.isNotEmpty) {
+      _inputController.text = initial;
+    }
     _scrollController.addListener(_onScroll);
     if (_sessionId != null) {
       _subscribe();
@@ -618,6 +631,22 @@ class _ChatPageState extends State<ChatPage> {
     _toast(tr(context, 'chat.more.pathCopied'));
   }
 
+  void _copyTaskLink() {
+    final sessionId = _sessionId;
+    final base = widget.gateway.remoteUrl;
+    if (sessionId == null || base == null || base.isEmpty) {
+      _toast(tr(context, 'chat.more.noLink'));
+      return;
+    }
+    final uri = Uri.parse(base);
+    final link = uri.replace(queryParameters: {
+      ...uri.queryParameters,
+      'session': sessionId,
+    }).toString();
+    Clipboard.setData(ClipboardData(text: link));
+    _toast(tr(context, 'chat.more.linkCopied'));
+  }
+
   /// The "更多" dropdown actions (official second header row).
   void _onMoreMenu(String action) {
     final sessionId = _sessionId;
@@ -643,6 +672,8 @@ class _ChatPageState extends State<ChatPage> {
         _copyWorkspacePath();
       case 'copyId':
         _copySessionId();
+      case 'copyLink':
+        _copyTaskLink();
       case 'compact':
         if (sessionId != null) {
           _run(tr(context, 'chat.compact.failed'),
@@ -657,6 +688,9 @@ class _ChatPageState extends State<ChatPage> {
 
   List<PopupMenuEntry<String>> _moreMenuItems(BuildContext context) => [
         _menuItem('rename', Icons.edit_outlined, 'chat.more.rename'),
+        _menuItem('copyId', Icons.tag, 'chat.more.copyId'),
+        _menuItem('copyLink', Icons.link, 'chat.more.copyLink'),
+        const PopupMenuDivider(),
         _menuItem('pin', Icons.push_pin_outlined, 'chat.more.pin'),
         _menuItem('archive', Icons.archive_outlined, 'chat.more.archive'),
         _menuItem(
@@ -664,8 +698,6 @@ class _ChatPageState extends State<ChatPage> {
         const PopupMenuDivider(),
         _menuItem(
             'copyPath', Icons.folder_copy_outlined, 'chat.more.copyPath'),
-        _menuItem('copyId', Icons.tag, 'chat.more.copyId'),
-        const PopupMenuDivider(),
         _menuItem('compact', Icons.compress, 'chat.more.compact'),
         _menuItem('usage', Icons.query_stats_outlined, 'chat.more.usage'),
         _menuItem('plans', Icons.checklist_outlined, 'chat.more.plans'),
@@ -707,7 +739,7 @@ class _ChatPageState extends State<ChatPage> {
       ),
       body: Column(
         children: [
-          // Official second header row: task title + 更多 dropdown.
+          // Official second header row: task title + workspace chip + 更多.
           _contentCol(
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 4, 4),
@@ -722,6 +754,36 @@ class _ChatPageState extends State<ChatPage> {
                           fontWeight: FontWeight.w600,
                           color: ZInk.solid(context))),
                 ),
+                if (widget.workspaceLabel != null &&
+                    widget.workspaceLabel!.isNotEmpty) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: ZInk.tile(context),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: ZInk.hairline(context)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.folder_outlined,
+                            size: 13, color: ZInk.muted(context)),
+                        const SizedBox(width: 4),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 96),
+                          child: Text(widget.workspaceLabel!,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: ZInk.muted(context))),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 PopupMenuButton<String>(
                   tooltip: tr(context, 'chat.more'),
                   onSelected: _onMoreMenu,

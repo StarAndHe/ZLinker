@@ -94,6 +94,9 @@ class FakeChatGateway extends ChangeNotifier implements ChatGateway {
   String? get chatWorkspaceId => 'ws-1';
   @override
   String? get workspacePath => '/repo/app';
+  @override
+  String? get remoteUrl =>
+      'https://zcode.z.ai/remote/v4?sid=abc&hash=xyz&t=123&mid=m1&name=demo';
 
   @override
   Future<void> reconnect() async => _rec('reconnect');

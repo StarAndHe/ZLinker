@@ -99,6 +99,9 @@ abstract interface class ChatGateway implements Listenable {
   String? get chatWorkspaceId;
   String? get workspacePath;
 
+  /// Original remote-control URL (for "copy task link").
+  String? get remoteUrl;
+
   /// Manual recovery after a KICK: full suspend + reconnect.
   Future<void> reconnect();
 
@@ -564,6 +567,9 @@ class DeviceSession extends ChangeNotifier
 
   @override
   String? get workspacePath => _activeWorkspace?['workspacePath'] as String?;
+
+  @override
+  String? get remoteUrl => params.source.toString();
 
   /// Task metadata commands on the zcode-task channel (method names not
   /// live-confirmed, probed per operation — see [TaskCommandsPort]).
