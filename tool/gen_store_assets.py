@@ -499,9 +499,12 @@ def ensure(path):
 
 
 def main():
-    s_tasks = os.path.join(SHOTS, "01-list-mobile.png")
-    s_chat = os.path.join(SHOTS, "02-chat-mobile.png")
-    s_dual = os.path.join(SHOTS, "03-dual-pane.png")
+    # Real app captures (integration_test/screenshots_test.dart, seeded data).
+    # Portrait captures are 1440x3036, dual-pane 2752x1914 — much sharper
+    # than the old 390x844 web-demo sources.
+    s_tasks = os.path.join(SHOTS, "raw", "02-tasks-en.png")
+    s_chat = os.path.join(SHOTS, "raw", "03-chat-en.png")
+    s_dual = os.path.join(SHOTS, "raw", "04-dualpane-en.png")
 
     load_icon(1024).convert("RGB").save(ensure(os.path.join(OUT, "appstore/icon/app-icon-1024.png")))
     load_icon(512).convert("RGB").save(ensure(os.path.join(OUT, "googleplay/icon/play-icon-512.png")))

@@ -99,19 +99,15 @@ with its own connection.
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/01-list-mobile.png" width="240" alt="Mobile task list" />
-  <img src="docs/screenshots/02-chat-mobile.png" width="240" alt="Mobile chat" />
+  <img src="docs/screenshots/raw/02-tasks-en.png" width="280" alt="Task list" />
+  <img src="docs/screenshots/raw/03-chat-en.png" width="280" alt="Conversation" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/03-dual-pane.png" width="720" alt="Desktop dual-pane" />
+  <img src="docs/screenshots/raw/04-dualpane-en.png" width="760" alt="Tablet dual-pane" />
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/demo.gif" width="320" alt="ZLinker demo" />
-</p>
-
-Mobile list → chat, and the ≥768dp IDE sidebar + chat pane. Screenshots
+Task list → conversation, and the ≥768dp dual-pane layout (sidebar + chat).
 are captured from the **Flutter app** (see `tool/capture_screenshots.sh`).
 The native UI mirrors the official remote layout (same tokens, breakpoints,
 chrome).

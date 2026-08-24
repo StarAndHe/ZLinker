@@ -70,18 +70,18 @@ python3 tool/gen_store_assets.py
 Source inputs:
 
 - `assets/icon/icon.png` — 1024 app icon (from `tool/icon_gen.dart`)
-- `docs/screenshots/01-list-mobile.png`, `02-chat-mobile.png`, `03-dual-pane.png`
-  — real captures (from `tool/capture_screenshots.sh` /
-  `integration_test/screenshots_test.dart`)
+- `docs/screenshots/raw/02-tasks-en.png`, `03-chat-en.png`, `04-dualpane-en.png`
+  — real captures from `integration_test/screenshots_test.dart` (seeded data)
 
 To refresh the underlying screenshots with new seeded data, recapture them
-per [`store/SCREENSHOTS.md`](../../store/SCREENSHOTS.md), drop the results
-into `docs/screenshots/`, then rerun the generator.
+per [`docs/store/SCREENSHOTS.md`](SCREENSHOTS.md) — they land directly in
+`docs/screenshots/raw/`, then rerun the generator.
 
 ## Notes
 
 - The device-frame captions are marketing overlays. If a store rejects
-  framed/annotated screenshots for a given slot, upload the raw captures in
-  `docs/screenshots/` instead.
+  framed/annotated screenshots for a given slot, upload the unframed captures
+  in `docs/screenshots/` instead (`iphone/` + `play/` are already at store
+  sizes).
 - ZLinker is an independent community tool, not affiliated with Zhipu AI.
   Keep that disclaimer in the store description (already included in the copy).

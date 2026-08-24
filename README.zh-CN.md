@@ -85,18 +85,15 @@ App 照常能用。
 ## 📸 截图
 
 <p align="center">
-  <img src="docs/screenshots/01-list-mobile.png" width="240" alt="手机任务列表" />
-  <img src="docs/screenshots/02-chat-mobile.png" width="240" alt="手机对话" />
+  <img src="docs/screenshots/raw/02-tasks-zh.png" width="280" alt="任务列表" />
+  <img src="docs/screenshots/raw/03-chat-zh.png" width="280" alt="对话" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/03-dual-pane.png" width="720" alt="桌面双栏" />
+  <img src="docs/screenshots/raw/04-dualpane-zh.png" width="760" alt="平板双栏" />
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/demo.gif" width="320" alt="ZLinker 演示" />
-</p>
-
+任务列表 → 对话，以及 ≥768dp 的双栏布局（侧栏 + 对话）。
 手机列表 → 对话,以及 ≥768dp 的 IDE 侧栏 + 对话区。截图为 **Flutter 原生 App** 界面(可用 `tool/capture_screenshots.sh` 重新生成)。原生 UI 对齐官方远程控制布局(同一套 token、断点与结构)。
 
 ---

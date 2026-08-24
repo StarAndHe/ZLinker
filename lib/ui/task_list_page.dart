@@ -97,25 +97,28 @@ class _TaskListPageState extends State<TaskListPage> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(tr(context, 'tasks.banner.onlineTitle'),
-                style: const TextStyle(
-                    fontSize: 16, fontWeight: FontWeight.w600)),
-            Text(
-              online
-                  ? tr(context, 'tasks.banner.onlineSubtitle')
-                  : widget.device.label,
-              style: TextStyle(
-                fontSize: 12.5,
-                color: online
-                    ? ZColors.pillSuccessBg
-                    : ZInk.faint(context),
+        title: Padding(
+          padding: const EdgeInsets.only(left: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(tr(context, 'tasks.banner.onlineTitle'),
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w600)),
+              Text(
+                online
+                    ? tr(context, 'tasks.banner.onlineSubtitle')
+                    : widget.device.label,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: online
+                      ? ZColors.pillSuccessBg
+                      : ZInk.faint(context),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           if (widget.theme != null)
