@@ -102,7 +102,7 @@ jobs:
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner             -configuration Release -destination 'generic/platform=iOS'             -allowProvisioningUpdates             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8"             -authenticationKeyID "$APPLE_API_KEY_ID"             -authenticationKeyIssuerID "$APPLE_API_ISSUER_ID" DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Distribution" archive -archivePath "$RUNNER_TEMP/Runner.xcarchive" | xcbeautify || true
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner             -configuration Release -destination 'generic/platform=iOS'             -allowProvisioningUpdates             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8"             -authenticationKeyID "$APPLE_API_KEY_ID"             -authenticationKeyIssuerID "$APPLE_API_ISSUER_ID" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO archive -archivePath "$RUNNER_TEMP/Runner.xcarchive" | xcbeautify || true
           test -d "$RUNNER_TEMP/Runner.xcarchive"
 
       - name: Export IPA
