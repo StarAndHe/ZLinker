@@ -157,3 +157,44 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+
+  screenshots:
+    name: Store screenshots
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        run: flutter pub get
+
+      - name: Boot iPhone simulator
+        run: |
+          UDID=$(xcrun simctl list devices available | grep -E 'iPhone 1[56] Pro' | head -1 | grep -oE '[0-9A-Fa-f-]{36}')
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          xcrun simctl bootstatus "$UDID" -b
+
+      - name: Capture screenshots
+        run: |
+          flutter test integration_test/screenshots_test.dart -d "$UDID" --screenshots build/screenshots
+
+      - name: Resize for store listings
+        run: |
+          mkdir -p store/screens
+          for f in build/screenshots/*.png; do
+            name=$(basename "$f" .png)
+            # App Store 6.9" (1290x2796) and Play phone (1080x1920 min aspect)
+            sips -z 2796 1290 "$f" --out "store/screens/${name}_iphone69.png" >/dev/null
+            sips -z 1920 1080 "$f" --out "store/screens/${name}_play.png" >/dev/null
+          done
+          ls -la store/screens
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-screenshots
+          path: store/screens
