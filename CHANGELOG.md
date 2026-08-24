@@ -5,28 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-08-24
+
+### Added
+
+- **Dual layouts aligned with the official web page** (PR #1,
+  `task_list_page.dart`, live-page verified at the Tailwind `md` = 768px
+  breakpoint):
+  - **<768** mobile card list — AppBar「ZCode 远程控制」+ green connected
+    subtitle, connection explanation card, workspace cards with status
+    pills, compact relative times, push-style chat navigation.
+  - **≥768** desktop IDE sidebar (264px, `#1E1E1E`) — 新建任务 / 搜索 /
+    项目 tree with selected highlight, 1px `#333` divider, rounded right
+    chat pane (min-width 320).
+- **Pinned task group** (「已置顶」section card) above workspace cards on
+  the mobile list, driven by `SessionEntry.raw['pinned']`.
+- Chat page second header shows a workspace folder chip; 「更多」leads
+  with 重命名任务 / 复制任务 ID / 复制任务链接 (official parity).
+
 ## [1.3.1] - 2026-08-24
 
 ### Added
 
-- **Responsive dual layouts** (`task_list_page.dart`, live-page verified):
-  Tailwind `md` = 768px breakpoint.
-  - **&lt;768** mobile card list: AppBar「ZCode 远程控制」+ green
-    connected subtitle; connection explanation card; workspace cards
-    with status pills; compact relative times (`27分` / `1小时`);
-    push-style chat navigation.
-  - **≥768** IDE sidebar (264px, `#1E1E1E`): 新建任务 / 搜索(Ctrl+K) /
-    项目 tree (folders + title·time rows, selected highlight) + 1px
-    `#333` divider + rounded right chat pane (`min-width: 320`) —
-    not a shrunk copy of the mobile card list.
-- **Pinned task group** on the mobile list: the official "已置顶"
-  section card (title, workspace · time, phase pill) above the
-  workspace cards, driven by `SessionEntry.raw['pinned']`.
+- **Responsive dual-pane layout** (`task_list_page.dart`): at ≥768px
+  (official Tailwind `md` breakpoint, verified 767 vs 768 against the
+  live page) the task list becomes the official desktop layout — a 264px
+  sidebar (`--workspace-sidebar-panel-width`) with its own slim header,
+  a 1px divider, and the chat page embedded side by side in the right
+  pane (`ChatPage.embedded`, no back button). Below 768 the push-style
+  phone navigation is unchanged.
+- **Pinned task group** on the list: the official "已置顶" section card
+  (title, workspace · time, phase pill) above the workspace cards,
+  driven by `SessionEntry.raw['pinned']`.
 - Long-press on any task row opens a bottom-sheet action sheet
   (停止/暂停/恢复, enabled per phase) — replaces the per-row ⋮ menu,
   matching the official mobile list which has no row menus.
-- Chat second header shows a workspace folder chip; "更多" leads with
-  重命名任务 / 复制任务 ID / 复制任务链接 (official parity).
 
 ### Changed
 
@@ -37,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the current task row (latest running, else most recent) gets the
   official rounded white/10 highlight instead of the sky tint; task-row
   phase pills use the official solid style (#46BF72 black-text 已完成,
-  #001D3D white-text 运行中, 10px label, h18); task rows ~62px.
+  #001D3D white-text 运行中, 10px label, h18).
 - **Chat content column** (`chat_page.dart`): messages cap at 848px and
   the composer at 864px, centered inside the pane like the official
   desktop page; composer chips (mode/model/thought) are icon-only 28×28
