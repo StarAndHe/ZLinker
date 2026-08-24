@@ -13,10 +13,9 @@ class FakeDeviceSession extends DeviceSession {
     required super.params,
     List<Map<String, dynamic>> entries = const [],
     List<Map<String, dynamic>> workspaces = const [],
-    List<Map<String, dynamic>> chatRows = const [],
+    this._chatRows = const [],
   })  : status = DeviceStatus.connected,
         sessions = SessionsIndexState(),
-        _chatRows = chatRows,
         super() {
     sessions.applyFrame({
       'toSeq': 1,
