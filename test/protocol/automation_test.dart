@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:zremote/protocol/automation.dart';
-import 'package:zremote/protocol/channel_client.dart';
+import 'package:zlinker/protocol/automation.dart';
+import 'package:zlinker/protocol/channel_client.dart';
 
 /// Fake automation channel: answers from a method table, records every
 /// call, and can be tuned to reject method names with "no such method".

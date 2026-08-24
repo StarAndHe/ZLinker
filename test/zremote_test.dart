@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zremote/protocol/connection_params.dart';
-import 'package:zremote/state/device_store.dart';
+import 'package:zlinker/protocol/connection_params.dart';
+import 'package:zlinker/state/device_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

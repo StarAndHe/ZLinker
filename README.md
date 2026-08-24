@@ -1,6 +1,6 @@
 <div align="center">
 
-# ZRemote
+# ZLinker
 
 **Full-protocol native remote — conversations included.**
 
@@ -12,7 +12,7 @@ model/mode/thought switching, queues, interactions, attachments and
 history paging. The official web remote stays one tap away as a
 fallback for anything the native path can't do yet.
 
-[简体中文](README.zh-CN.md) · [Why ZRemote?](#-why-zremote) · [Features](#-features) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Roadmap](#️-roadmap)
+[简体中文](README.zh-CN.md) · [Why ZLinker?](#-why-zlinker) · [Features](#-features) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Roadmap](#️-roadmap)
 
 [![Release](https://img.shields.io/github/v/release/opensymph/ZLinker?style=flat-square&logo=github&color=blue)](https://github.com/opensymph/ZLinker/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/opensymph/ZLinker/ci.yml?style=flat-square&label=build)](https://github.com/opensymph/ZLinker/actions/workflows/ci.yml)
@@ -27,14 +27,14 @@ fallback for anything the native path can't do yet.
 
 ---
 
-## 💡 Why ZRemote?
+## 💡 Why ZLinker?
 
 Two bad options used to exist: re-implement the whole private protocol
 (relay handshakes, pairing proofs, frame transport, V4 snapshots) and
 break on every protocol change — or ship a dumb launcher with no status,
 no task list, no controls.
 
-**ZRemote takes the hybrid bet.** A battle-tested pure-Dart protocol
+**ZLinker takes the hybrid bet.** A battle-tested pure-Dart protocol
 stack powers everything natively — device status, the live task list,
 stop/pause/resume, usage, model providers, and since 1.3 the full
 conversation experience (streaming rows, commands with CAS retry,
@@ -108,7 +108,7 @@ with its own connection.
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/demo.gif" width="320" alt="ZRemote demo" />
+  <img src="docs/screenshots/demo.gif" width="320" alt="ZLinker demo" />
 </p>
 
 Mobile list → chat, and the ≥768dp IDE sidebar + chat pane. Screenshots
@@ -144,7 +144,7 @@ Xcode.
 
 ```bash
 git clone https://github.com/opensymph/ZLinker.git
-cd ZRemote
+cd ZLinker
 flutter pub get
 
 flutter run                       # debug on a connected device
@@ -305,7 +305,7 @@ was ported from.
   `zxing2`, `shared_preferences`, `url_launcher`, `web_socket_channel`,
   `flutter_local_notifications`, `flutter_markdown`, `file_picker`.
 
-> ⚠️ ZRemote is an independent, community tool. It is not affiliated with,
+> ⚠️ ZLinker is an independent, community tool. It is not affiliated with,
 > endorsed by, or connected to Zhipu AI. Use it only with devices you own and
 > in accordance with the ZCode terms of service.
 
@@ -315,4 +315,4 @@ was ported from.
 
 ## License
 
-MIT © ZRemote contributors — see [LICENSE](LICENSE).
+MIT © ZLinker contributors — see [LICENSE](LICENSE).

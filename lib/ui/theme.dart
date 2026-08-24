@@ -93,7 +93,7 @@ class ZInk {
 
 /// Light/dark mode, persisted. Defaults to dark like the official page.
 class ThemeController extends ChangeNotifier {
-  static const _key = 'zremote_theme_mode';
+  static const _key = 'zlinker_theme_mode';
   ThemeMode _mode = ThemeMode.dark;
   ThemeMode get mode => _mode;
 

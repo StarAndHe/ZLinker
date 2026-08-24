@@ -7,11 +7,11 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>ZRemote</string>
+	<string>ZLinker</string>
 	<key>NSCameraUsageDescription</key>
-	<string>ZRemote 需要相机权限以扫码添加桌面设备 / ZRemote uses the camera to scan the remote-control QR code.</string>
+	<string>ZLinker 需要相机权限以扫码添加桌面设备 / ZLinker uses the camera to scan the remote-control QR code.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>ZRemote 需要相册权限以从二维码截图识别设备链接 / ZRemote uses the photo library to decode a QR screenshot.</string>
+	<string>ZLinker 需要相册权限以从二维码截图识别设备链接 / ZLinker uses the photo library to decode a QR screenshot.</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -19,7 +19,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>zremote</string>
+	<string>zlinker</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

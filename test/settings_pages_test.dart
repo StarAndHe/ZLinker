@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zremote/state/device_store.dart';
-import 'package:zremote/ui/settings_page.dart';
-import 'package:zremote/ui/theme.dart';
-import 'package:zremote/ui/ui_settings.dart';
-import 'package:zremote/ui/usage_stats_page.dart';
+import 'package:zlinker/state/device_store.dart';
+import 'package:zlinker/ui/settings_page.dart';
+import 'package:zlinker/ui/theme.dart';
+import 'package:zlinker/ui/ui_settings.dart';
+import 'package:zlinker/ui/usage_stats_page.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

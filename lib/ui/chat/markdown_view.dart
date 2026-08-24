@@ -9,12 +9,12 @@ import '../ui_settings.dart';
 /// Markdown renderer matching the official web client look: selectable
 /// body text, inline code on a pill background, fenced code blocks with a
 /// language tag and copy button in a self-drawn header bar.
-class ZRemoteMarkdown extends StatelessWidget {
+class ZLinkerMarkdown extends StatelessWidget {
   final String data;
   final bool selectable;
   final double fontSize;
 
-  const ZRemoteMarkdown(
+  const ZLinkerMarkdown(
     this.data, {
     super.key,
     this.selectable = true,

@@ -4,12 +4,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// UI preferences: locale (zh-CN / en-US), the native task-list switch and
 /// the notification switches (master + per channel).
 class UiSettings extends ChangeNotifier {
-  static const _localeKey = 'zremote_ui_locale';
-  static const _nativeListKey = 'zremote_native_list';
-  static const _notifyKey = 'zremote_notify';
-  static const _notifyTasksKey = 'zremote_notify_tasks';
-  static const _notifyOffPeakKey = 'zremote_notify_offpeak';
-  static const _notifyAutoKey = 'zremote_notify_auto';
+  static const _localeKey = 'zlinker_ui_locale';
+  static const _nativeListKey = 'zlinker_native_list';
+  static const _notifyKey = 'zlinker_notify';
+  static const _notifyTasksKey = 'zlinker_notify_tasks';
+  static const _notifyOffPeakKey = 'zlinker_notify_offpeak';
+  static const _notifyAutoKey = 'zlinker_notify_auto';
 
   String locale = 'zh-CN';
   bool nativeListEnabled = true;
@@ -152,7 +152,7 @@ String relativeTimeShort(BuildContext context, int ms) {
 }
 
 const _zh = {
-  'app.title': 'ZRemote',
+  'app.title': 'ZLinker',
   'devices.empty.title': '还没有设备',
   'devices.empty.body': '在桌面 ZCode 中打开「远程控制」，\n扫码或粘贴链接即可添加设备',
   'devices.add': '添加设备',
@@ -409,13 +409,13 @@ const _zh = {
   'settings.data': '数据',
   'settings.usageStats': '使用统计',
   'settings.usageStatsHint': '仅保存在本机',
-  'settings.about': '关于 ZRemote',
+  'settings.about': '关于 ZLinker',
   'about.version': '版本',
   'about.github': 'GitHub 仓库',
   'about.licenses': '开源许可',
   'about.privacy': '隐私政策',
   'about.tos': '服务条款',
-  'about.disclaimer': 'ZRemote 是非官方的社区客户端，与 Zhipu AI 及 ZCode 无关联。',
+  'about.disclaimer': 'ZLinker 是非官方的社区客户端，与 Zhipu AI 及 ZCode 无关联。',
   'usage.title': '使用统计',
   'usage.summary.devices': '设备数',
   'usage.summary.opens': '累计打开',
@@ -597,7 +597,7 @@ const _zh = {
   'settings.checkUpdate': '检查更新',
   'update.latest': '已是最新版本',
   'update.newVersion': '发现新版本 v\$0',
-  'update.availableBody': '有新的 ZRemote 版本可用。',
+  'update.availableBody': '有新的 ZLinker 版本可用。',
   'update.download': '到浏览器下载',
   'update.later': '稍后',
   'update.failed': '检查更新失败: \$0',
@@ -605,7 +605,7 @@ const _zh = {
 };
 
 const _en = {
-  'app.title': 'ZRemote',
+  'app.title': 'ZLinker',
   'devices.empty.title': 'No devices yet',
   'devices.empty.body':
       'Open "Remote Control" in ZCode desktop,\nthen scan or paste the link',
@@ -874,14 +874,14 @@ const _en = {
   'settings.data': 'Data',
   'settings.usageStats': 'Usage statistics',
   'settings.usageStatsHint': 'Stored on this device only',
-  'settings.about': 'About ZRemote',
+  'settings.about': 'About ZLinker',
   'about.version': 'Version',
   'about.github': 'GitHub repository',
   'about.licenses': 'Open-source licenses',
   'about.privacy': 'Privacy policy',
   'about.tos': 'Terms of Service',
   'about.disclaimer':
-      'ZRemote is an unofficial community client, not affiliated with Zhipu AI or ZCode.',
+      'ZLinker is an unofficial community client, not affiliated with Zhipu AI or ZCode.',
   'usage.title': 'Usage statistics',
   'usage.summary.devices': 'Devices',
   'usage.summary.opens': 'Total opens',
@@ -1072,7 +1072,7 @@ const _en = {
   'settings.checkUpdate': 'Check for updates',
   'update.latest': 'Up to date',
   'update.newVersion': 'New version v\$0',
-  'update.availableBody': 'A new ZRemote version is available.',
+  'update.availableBody': 'A new ZLinker version is available.',
   'update.download': 'Download in browser',
   'update.later': 'Later',
   'update.failed': 'Update check failed: \$0',

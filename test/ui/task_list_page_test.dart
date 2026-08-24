@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zremote/state/device_session.dart';
-import 'package:zremote/state/device_store.dart';
-import 'package:zremote/ui/chat/chat_page.dart';
-import 'package:zremote/ui/task_list_page.dart';
-import 'package:zremote/ui/theme.dart';
-import 'package:zremote/ui/ui_settings.dart';
+import 'package:zlinker/state/device_session.dart';
+import 'package:zlinker/state/device_store.dart';
+import 'package:zlinker/ui/chat/chat_page.dart';
+import 'package:zlinker/ui/task_list_page.dart';
+import 'package:zlinker/ui/theme.dart';
+import 'package:zlinker/ui/ui_settings.dart';
 
 import '../helpers/fake_device_session.dart';
 

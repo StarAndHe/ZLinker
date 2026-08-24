@@ -3,11 +3,11 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:zremote/protocol/conversation.dart';
-import 'package:zremote/state/device_session.dart';
-import 'package:zremote/ui/chat/chat_page.dart';
-import 'package:zremote/ui/theme.dart';
-import 'package:zremote/ui/ui_settings.dart';
+import 'package:zlinker/protocol/conversation.dart';
+import 'package:zlinker/state/device_session.dart';
+import 'package:zlinker/ui/chat/chat_page.dart';
+import 'package:zlinker/ui/theme.dart';
+import 'package:zlinker/ui/ui_settings.dart';
 
 /// Recording fake: subscribes answer from a real [ConversationState] fed
 /// by hand; every mutating call is captured for assertions.

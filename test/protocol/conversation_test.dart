@@ -3,7 +3,7 @@
 // ignore_for_file: use_null_aware_elements, prefer_initializing_formals
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:zremote/protocol/conversation.dart';
+import 'package:zlinker/protocol/conversation.dart';
 
 void main() {
   group('ConversationState delta application', () {

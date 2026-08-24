@@ -13,12 +13,12 @@ import org.json.JSONArray
 
 /**
  * Home-screen widget: shows up to three pinned/recent devices and opens
- * the app on tap (`zremote://device/<id>`).
+ * the app on tap (`zlinker://device/<id>`).
  *
  * Data is written by the Flutter `home_widget` plugin into the default
  * shared preferences under key `devices_json`.
  */
-class ZRemoteWidgetProvider : AppWidgetProvider() {
+class ZLinkerWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(
         context: Context,
         manager: AppWidgetManager,
@@ -38,7 +38,7 @@ class ZRemoteWidgetProvider : AppWidgetProvider() {
             manager: AppWidgetManager,
             appWidgetId: Int
         ) {
-            val views = RemoteViews(context.packageName, R.layout.zremote_widget)
+            val views = RemoteViews(context.packageName, R.layout.zlinker_widget)
             val prefs: SharedPreferences =
                 context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val raw = prefs.getString(KEY, "[]") ?: "[]"
@@ -62,7 +62,7 @@ class ZRemoteWidgetProvider : AppWidgetProvider() {
                     views.setTextViewText(labelId, label)
                     val intent = Intent(context, MainActivity::class.java).apply {
                         action = Intent.ACTION_VIEW
-                        data = Uri.parse("zremote://device/$id")
+                        data = Uri.parse("zlinker://device/$id")
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or
                             Intent.FLAG_ACTIVITY_CLEAR_TOP
                     }
@@ -93,7 +93,7 @@ class ZRemoteWidgetProvider : AppWidgetProvider() {
 
             if (devices.length() == 0) {
                 views.setViewVisibility(R.id.device_1, View.VISIBLE)
-                views.setTextViewText(R.id.device_1_label, "Add a device in ZRemote")
+                views.setTextViewText(R.id.device_1_label, "Add a device in ZLinker")
                 views.setOnClickPendingIntent(
                     R.id.device_1,
                     PendingIntent.getActivity(

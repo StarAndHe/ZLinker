@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zremote/protocol/channel_client.dart';
-import 'package:zremote/protocol/off_peak.dart';
-import 'package:zremote/state/device_session.dart';
-import 'package:zremote/state/device_store.dart';
-import 'package:zremote/ui/off_peak_page.dart';
-import 'package:zremote/ui/theme.dart';
-import 'package:zremote/ui/ui_settings.dart';
+import 'package:zlinker/protocol/channel_client.dart';
+import 'package:zlinker/protocol/off_peak.dart';
+import 'package:zlinker/state/device_session.dart';
+import 'package:zlinker/state/device_store.dart';
+import 'package:zlinker/ui/off_peak_page.dart';
+import 'package:zlinker/ui/theme.dart';
+import 'package:zlinker/ui/ui_settings.dart';
 
 /// Fake off-peak device link answering from a local table.
 class FakeOffPeakHost implements OffPeakHost {

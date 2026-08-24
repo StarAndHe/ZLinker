@@ -2,14 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zremote/notifications/notification_service.dart';
-import 'package:zremote/notifications/notify_rules.dart';
-import 'package:zremote/protocol/automation.dart';
-import 'package:zremote/protocol/conversation.dart';
-import 'package:zremote/protocol/off_peak.dart';
-import 'package:zremote/state/device_session.dart';
-import 'package:zremote/state/notification_hub.dart';
-import 'package:zremote/ui/ui_settings.dart';
+import 'package:zlinker/notifications/notification_service.dart';
+import 'package:zlinker/notifications/notify_rules.dart';
+import 'package:zlinker/protocol/automation.dart';
+import 'package:zlinker/protocol/conversation.dart';
+import 'package:zlinker/protocol/off_peak.dart';
+import 'package:zlinker/state/device_session.dart';
+import 'package:zlinker/state/notification_hub.dart';
+import 'package:zlinker/ui/ui_settings.dart';
 
 /// Records what the hub would have shown; plugin-backed members no-op.
 class RecordingService implements NotificationService {

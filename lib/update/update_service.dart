@@ -25,7 +25,7 @@ class UpdateInfo {
 Future<UpdateInfo> checkForUpdatesFromGithub(String currentVersion) async {
   final res = await http
       .get(Uri.parse(
-          'https://api.github.com/repos/opensymph/ZRemote/releases/latest'))
+          'https://api.github.com/repos/opensymph/ZLinker/releases/latest'))
       .timeout(const Duration(seconds: 15));
   if (res.statusCode != 200) {
     throw UpdateCheckException(
@@ -38,7 +38,7 @@ Future<UpdateInfo> checkForUpdatesFromGithub(String currentVersion) async {
   final tag = '${data['tag_name'] ?? ''}';
   final version = tag.startsWith('v') ? tag.substring(1) : tag;
   final releaseUrl =
-      'https://github.com/opensymph/ZRemote/releases';
+      'https://github.com/opensymph/ZLinker/releases';
   final body = data['body'] as String?;
   final assets = data['assets'];
   String? apkUrl;

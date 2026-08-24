@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:zremote/protocol/channel_client.dart';
-import 'package:zremote/protocol/task_commands.dart';
+import 'package:zlinker/protocol/channel_client.dart';
+import 'package:zlinker/protocol/task_commands.dart';
 
 void main() {
   test('remembers the first accepted candidate and reuses it', () async {

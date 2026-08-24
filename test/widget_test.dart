@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zremote/main.dart';
-import 'package:zremote/state/device_session.dart';
-import 'package:zremote/state/device_store.dart';
-import 'package:zremote/state/scheduled_store.dart';
-import 'package:zremote/ui/devices_page.dart';
-import 'package:zremote/ui/theme.dart';
-import 'package:zremote/ui/ui_settings.dart';
+import 'package:zlinker/main.dart';
+import 'package:zlinker/state/device_session.dart';
+import 'package:zlinker/state/device_store.dart';
+import 'package:zlinker/state/scheduled_store.dart';
+import 'package:zlinker/ui/devices_page.dart';
+import 'package:zlinker/ui/theme.dart';
+import 'package:zlinker/ui/ui_settings.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -37,7 +37,7 @@ void main() {
     )));
     await tester.pumpAndSettle();
 
-    expect(find.text('ZRemote'), findsOneWidget);
+    expect(find.text('ZLinker'), findsOneWidget);
     expect(find.text('还没有设备'), findsOneWidget);
     expect(find.text('添加设备'), findsOneWidget);
   });
@@ -70,8 +70,8 @@ void main() {
 
   testWidgets('App boots', (WidgetTester tester) async {
     SharedPreferences.setMockInitialValues({});
-    await tester.pumpWidget(const ZRemoteApp());
+    await tester.pumpWidget(const ZLinkerApp());
     await tester.pumpAndSettle();
-    expect(find.text('ZRemote'), findsOneWidget);
+    expect(find.text('ZLinker'), findsOneWidget);
   });
 }

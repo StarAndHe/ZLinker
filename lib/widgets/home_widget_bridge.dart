@@ -11,7 +11,7 @@ import '../state/device_store.dart';
 /// Writes a compact JSON payload the App Widget provider reads, then
 /// requests a redraw. No-ops on iOS / desktop / when the plugin is absent.
 class HomeWidgetBridge {
-  static const androidName = 'ZRemoteWidgetProvider';
+  static const androidName = 'ZLinkerWidgetProvider';
   static const dataKey = 'devices_json';
 
   static Future<void> syncDevices(List<Device> devices) async {
