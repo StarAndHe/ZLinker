@@ -7,7 +7,7 @@ import 'theme.dart';
 import 'ui_settings.dart';
 
 /// Model provider management of one device (model-provider channel:
-/// getAll/save/delete), restyled with the ZRemote tokens.
+/// getAll/save/delete), restyled with the ZLinker tokens.
 class ModelProvidersPage extends StatefulWidget {
   final DeviceSession session;
   const ModelProvidersPage({super.key, required this.session});

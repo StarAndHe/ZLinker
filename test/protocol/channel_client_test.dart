@@ -2,8 +2,8 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:zremote/protocol/channel_client.dart';
-import 'package:zremote/protocol/ipc_codec.dart';
+import 'package:zlinker/protocol/channel_client.dart';
+import 'package:zlinker/protocol/ipc_codec.dart';
 
 void main() {
   late List<Uint8List> sent;

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:zremote/update/app_channel.dart';
-import 'package:zremote/update/update_service.dart';
+import 'package:zlinker/update/app_channel.dart';
+import 'package:zlinker/update/update_service.dart';
 
 void main() {
   group('compareVersions', () {

@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:zremote/protocol/automation.dart';
-import 'package:zremote/state/device_session.dart';
-import 'package:zremote/state/device_store.dart';
-import 'package:zremote/state/scheduled_store.dart';
-import 'package:zremote/ui/automations_page.dart';
-import 'package:zremote/ui/scheduled_page.dart';
-import 'package:zremote/ui/theme.dart';
-import 'package:zremote/ui/ui_settings.dart';
+import 'package:zlinker/protocol/automation.dart';
+import 'package:zlinker/state/device_session.dart';
+import 'package:zlinker/state/device_store.dart';
+import 'package:zlinker/state/scheduled_store.dart';
+import 'package:zlinker/ui/automations_page.dart';
+import 'package:zlinker/ui/scheduled_page.dart';
+import 'package:zlinker/ui/theme.dart';
+import 'package:zlinker/ui/ui_settings.dart';
 
 /// Fake device link: connected host whose automation port answers locally.
 class FakeAutomationHost implements AutomationHost {

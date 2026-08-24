@@ -1,5 +1,5 @@
-import 'package:zremote/protocol/conversation.dart';
-import 'package:zremote/state/device_session.dart';
+import 'package:zlinker/protocol/conversation.dart';
+import 'package:zlinker/state/device_session.dart';
 
 /// DeviceSession subclass answering from local tables (never connects).
 class FakeDeviceSession extends DeviceSession {

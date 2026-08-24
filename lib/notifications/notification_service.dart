@@ -20,10 +20,10 @@ class NotificationService {
   Future<void> Function(Map<String, dynamic> payload)? onTap;
 
   static const _channelSpecs = {
-    NotifyChannel.tasks: ('zremote_tasks', '任务事件', '任务完成与失败提醒'),
-    NotifyChannel.offPeak: ('zremote_offpeak', '闲时事件', '闲时任务完成与失败提醒'),
+    NotifyChannel.tasks: ('zlinker_tasks', '任务事件', '任务完成与失败提醒'),
+    NotifyChannel.offPeak: ('zlinker_offpeak', '闲时事件', '闲时任务完成与失败提醒'),
     NotifyChannel.automations: (
-      'zremote_automations',
+      'zlinker_automations',
       '自动化结果',
       '自动化定时触发的执行结果'
     ),

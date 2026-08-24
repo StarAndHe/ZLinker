@@ -35,8 +35,8 @@ jobs:
           KEY_ALIAS: ${{ secrets.ANDROID_KEYSTORE_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_KEY_PASSWORD }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > android/zremote-release.jks
-          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=zremote-release.jks\n' \
+          echo "$KEYSTORE_BASE64" | base64 -d > android/zlinker-release.jks
+          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=zlinker-release.jks\n' \
             "$KEYSTORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > android/key.properties
 
       - name: Build APK (github channel)
@@ -64,12 +64,12 @@ jobs:
       - name: Rename artifact
         run: |
           mv build/app/outputs/flutter-apk/app-release.apk \
-             zremote-${{ github.ref_name }}.apk
+             zlinker-${{ github.ref_name }}.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: zremote-${{ github.ref_name }}.apk
+          path: zlinker-${{ github.ref_name }}.apk
 
   ios:
     name: Build iOS (signed)

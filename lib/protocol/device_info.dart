@@ -2,9 +2,9 @@ import 'package:flutter/foundation.dart';
 
 /// Device identity sent during relay auth and mobile-view-state updates.
 ///
-/// The web client reports itself as a browser; ZRemote identifies itself
+/// The web client reports itself as a browser; ZLinker identifies itself
 /// honestly so the desktop can show the real connected client.
-const remoteAppName = 'zremote';
+const remoteAppName = 'zlinker';
 
 /// Real runtime platform (android / ios / web / windows / ...), defaults to
 /// `web` when unknown so the handshake stays valid on exotic targets.

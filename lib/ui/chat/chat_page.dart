@@ -1833,7 +1833,7 @@ class _AssistantBubble extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ZRemoteMarkdown(text),
+          ZLinkerMarkdown(text),
           if (showFeedback)
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -1964,7 +1964,7 @@ class _ReasoningTile extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            child: ZRemoteMarkdown(text, fontSize: 12),
+            child: ZLinkerMarkdown(text, fontSize: 12),
           ),
         ],
       ),

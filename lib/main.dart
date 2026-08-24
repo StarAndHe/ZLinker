@@ -19,17 +19,17 @@ import 'widgets/home_widget_bridge.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ZRemoteApp());
+  runApp(const ZLinkerApp());
 }
 
-class ZRemoteApp extends StatefulWidget {
-  const ZRemoteApp({super.key});
+class ZLinkerApp extends StatefulWidget {
+  const ZLinkerApp({super.key});
 
   @override
-  State<ZRemoteApp> createState() => _ZRemoteAppState();
+  State<ZLinkerApp> createState() => _ZLinkerAppState();
 }
 
-class _ZRemoteAppState extends State<ZRemoteApp> {
+class _ZLinkerAppState extends State<ZLinkerApp> {
   final DeviceStore _store = DeviceStore();
   final ThemeController _theme = ThemeController();
   final UiSettings _ui = UiSettings();
@@ -91,7 +91,7 @@ class _ZRemoteAppState extends State<ZRemoteApp> {
 
   Future<void> _openFromWidgetUri(Uri? uri) async {
     if (uri == null) return;
-    // zremote://device/<id>  or  /device/<id>
+    // zlinker://device/<id>  or  /device/<id>
     final id = uri.host == 'device'
         ? (uri.pathSegments.isNotEmpty ? uri.pathSegments.first : null)
         : (uri.pathSegments.length >= 2 && uri.pathSegments.first == 'device'
@@ -183,7 +183,7 @@ class _ZRemoteAppState extends State<ZRemoteApp> {
       builder: (context, _) {
         return MaterialApp(
           navigatorKey: _navigatorKey,
-          title: 'ZRemote',
+          title: 'ZLinker',
           debugShowCheckedModeBanner: false,
           theme: buildLightTheme(),
           darkTheme: buildDarkTheme(),

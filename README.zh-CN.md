@@ -1,6 +1,6 @@
 <div align="center">
 
-# ZRemote
+# ZLinker
 
 **全协议原生远程 —— 对话也是原生的。**
 
@@ -9,7 +9,7 @@
 **全原生实现**:流式 markdown、带 diff 的工具卡片、模型/模式/思考切换、
 排队消息、交互确认、附件与历史翻页。官方 Web 远程保留为随时可用的兜底。
 
-[English](README.md) · [为什么做 ZRemote?](#-为什么做-zremote) · [功能](#-功能) · [快速开始](#-快速开始) · [架构](#-架构) · [路线图](#️-路线图)
+[English](README.md) · [为什么做 ZLinker?](#-为什么做-zlinker) · [功能](#-功能) · [快速开始](#-快速开始) · [架构](#-架构) · [路线图](#️-路线图)
 
 [![Release](https://img.shields.io/github/v/release/opensymph/ZLinker?style=flat-square&logo=github&color=blue)](https://github.com/opensymph/ZLinker/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/opensymph/ZLinker/ci.yml?style=flat-square&label=build)](https://github.com/opensymph/ZLinker/actions/workflows/ci.yml)
@@ -24,12 +24,12 @@
 
 ---
 
-## 💡 为什么做 ZRemote?
+## 💡 为什么做 ZLinker?
 
 过去只有两个坏选项:整套复刻私有协议(relay 握手、配对证明、帧传输、V4 快照),
 协议一变就碎;或者做一个纯启动器,没有状态、没有任务列表、没有任何控制。
 
-**ZRemote 押的是混合路线。**一套经过真机验证的纯 Dart 协议栈原生驱动一切 ——
+**ZLinker 押的是混合路线。**一套经过真机验证的纯 Dart 协议栈原生驱动一切 ——
 设备在线状态、实时任务列表、停止 / 暂停 / 恢复、用量、模型供应商,以及
 1.3 起的完整对话体验(流式行、带 CAS 重试的命令、附件、模型切换)。官方
 Web 远程保留为每个任务的逃生口;协议变动时原生路径优雅降级为网页模式,
@@ -94,7 +94,7 @@ App 照常能用。
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/demo.gif" width="320" alt="ZRemote 演示" />
+  <img src="docs/screenshots/demo.gif" width="320" alt="ZLinker 演示" />
 </p>
 
 手机列表 → 对话,以及 ≥768dp 的 IDE 侧栏 + 对话区。截图为 **Flutter 原生 App** 界面(可用 `tool/capture_screenshots.sh` 重新生成)。原生 UI 对齐官方远程控制布局(同一套 token、断点与结构)。
@@ -121,7 +121,7 @@ https://zcode.z.ai/remote/v4?sid=...&hash=...&t=...&mid=...&name=...
 
 ```bash
 git clone https://github.com/opensymph/ZLinker.git
-cd ZRemote
+cd ZLinker
 flutter pub get
 
 flutter run                       # 连接真机调试
@@ -271,7 +271,7 @@ flutter test      # 全部通过
 - **ZCode 与官方 Web 远程** —— 协议能力与兜底体验都在那里。
 - Flutter 生态:`flutter_inappwebview`、`mobile_scanner`、`zxing2`、`shared_preferences`、`url_launcher`、`web_socket_channel`、`flutter_local_notifications`、`flutter_markdown`、`file_picker`。
 
-> ⚠️ ZRemote 是独立的社区工具,与智谱 AI 无任何隶属、背书或关联。请仅用于你自己的设备,并遵守 ZCode 服务条款。
+> ⚠️ ZLinker 是独立的社区工具,与智谱 AI 无任何隶属、背书或关联。请仅用于你自己的设备,并遵守 ZCode 服务条款。
 
 [隐私政策](https://privacy.songsong.org/) · [服务条款](https://privacy.songsong.org/tos.html)
 
@@ -279,4 +279,4 @@ flutter test      # 全部通过
 
 ## 许可证
 
-MIT © ZRemote contributors —— 详见 [LICENSE](LICENSE)。
+MIT © ZLinker contributors —— 详见 [LICENSE](LICENSE)。
