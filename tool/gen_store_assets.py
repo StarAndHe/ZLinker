@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 import os
+import platform
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -28,6 +29,32 @@ OUT = os.path.join(ROOT, "docs", "store")
 SHOTS = os.path.join(ROOT, "docs", "screenshots")
 ICON_SRC = os.path.join(ROOT, "assets", "icon", "icon.png")
 APP = "ZLinker"
+
+# Fonts: Linux CI uses Inter + WenQuanYi; Windows uses Segoe UI + Microsoft YaHei.
+if platform.system() == "Windows":
+    FONT_DIR = "C:/Windows/Fonts"
+    CJK_FONT = "C:/Windows/Fonts/msyh.ttc"
+    _FONT_FILES = {
+        "bold": "segoeuib.ttf",
+        "semibold": "seguisb.ttf",
+        "medium": "segoeui.ttf",
+        "regular": "segoeui.ttf",
+    }
+else:
+    FONT_DIR = "/usr/share/fonts/truetype/macos"
+    CJK_FONT = "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
+    _FONT_FILES = {
+        "bold": "Inter-Bold.ttf",
+        "semibold": "Inter-SemiBold.ttf",
+        "medium": "Inter-Medium.ttf",
+        "regular": "Inter-Regular.ttf",
+    }
+
+
+def font(weight: str, size: int, lang: str = "en") -> ImageFont.FreeTypeFont:
+    if lang == "zh":
+        return ImageFont.truetype(CJK_FONT, size)
+    return ImageFont.truetype(os.path.join(FONT_DIR, _FONT_FILES[weight]), size)
 
 # ── Brand tokens ────────────────────────────────────────────────────────
 BG_TOP = (9, 12, 18)           # deep navy-black
@@ -40,21 +67,6 @@ INDIGO = (99, 102, 241)        # indigo-500 (secondary glow)
 WHITE = (245, 246, 248)
 MUTED = (168, 174, 186)        # cool neutral
 DIM = (120, 126, 138)
-
-FONT_DIR = "/usr/share/fonts/truetype/macos"
-CJK_FONT = "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc"
-
-
-def font(weight: str, size: int, lang: str = "en") -> ImageFont.FreeTypeFont:
-    if lang == "zh":
-        return ImageFont.truetype(CJK_FONT, size)
-    files = {
-        "bold": "Inter-Bold.ttf",
-        "semibold": "Inter-SemiBold.ttf",
-        "medium": "Inter-Medium.ttf",
-        "regular": "Inter-Regular.ttf",
-    }
-    return ImageFont.truetype(os.path.join(FONT_DIR, files[weight]), size)
 
 
 def is_zh(lang):
@@ -501,10 +513,10 @@ def ensure(path):
 def main():
     # Real app captures (integration_test/screenshots_test.dart, seeded data).
     # Portrait captures are 1440x3036, dual-pane 2752x1914 — much sharper
-    # than the old 390x844 web-demo sources.
-    s_tasks = os.path.join(SHOTS, "raw", "02-tasks-en.png")
-    s_chat = os.path.join(SHOTS, "raw", "03-chat-en.png")
-    s_dual = os.path.join(SHOTS, "raw", "04-dualpane-en.png")
+    # than the old 390x844 web-demo sources. Each locale gets its matching
+    # UI capture so the embedded screenshot text aligns with the caption.
+    def shot(name, lang):
+        return os.path.join(SHOTS, "raw", f"{name}-{lang}.png")
 
     load_icon(1024).convert("RGB").save(ensure(os.path.join(OUT, "appstore/icon/app-icon-1024.png")))
     load_icon(512).convert("RGB").save(ensure(os.path.join(OUT, "googleplay/icon/play-icon-512.png")))
@@ -515,24 +527,24 @@ def main():
     W, H = 1290, 2796
     for lang in ("en", "zh"):
         hero_slide(W, H, lang).save(ensure(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/00-hero-{lang}.png")))
-        showcase_portrait(W, H, s_tasks, "tasks", lang).save(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/01-tasks-{lang}.png"))
-        showcase_portrait(W, H, s_chat, "conversation", lang).save(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/02-conversation-{lang}.png"))
+        showcase_portrait(W, H, shot("02-tasks", lang), "tasks", lang).save(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/01-tasks-{lang}.png"))
+        showcase_portrait(W, H, shot("03-chat", lang), "conversation", lang).save(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/02-conversation-{lang}.png"))
         features_slide(W, H, lang).save(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/03-features-{lang}.png"))
 
     W, H = 2752, 2064
     for lang in ("en", "zh"):
-        showcase_landscape(W, H, s_dual, "dualpane", lang).save(ensure(os.path.join(OUT, f"appstore/screenshots/ipad-13/01-dualpane-{lang}.png")))
+        showcase_landscape(W, H, shot("04-dualpane", lang), "dualpane", lang).save(ensure(os.path.join(OUT, f"appstore/screenshots/ipad-13/01-dualpane-{lang}.png")))
 
     W, H = 1080, 2400
     for lang in ("en", "zh"):
         hero_slide(W, H, lang).save(ensure(os.path.join(OUT, f"googleplay/screenshots/phone/00-hero-{lang}.png")))
-        showcase_portrait(W, H, s_tasks, "tasks", lang).save(os.path.join(OUT, f"googleplay/screenshots/phone/01-tasks-{lang}.png"))
-        showcase_portrait(W, H, s_chat, "conversation", lang).save(os.path.join(OUT, f"googleplay/screenshots/phone/02-conversation-{lang}.png"))
+        showcase_portrait(W, H, shot("02-tasks", lang), "tasks", lang).save(os.path.join(OUT, f"googleplay/screenshots/phone/01-tasks-{lang}.png"))
+        showcase_portrait(W, H, shot("03-chat", lang), "conversation", lang).save(os.path.join(OUT, f"googleplay/screenshots/phone/02-conversation-{lang}.png"))
         features_slide(W, H, lang).save(os.path.join(OUT, f"googleplay/screenshots/phone/03-features-{lang}.png"))
 
     W, H = 1920, 1200
     for lang in ("en", "zh"):
-        showcase_landscape(W, H, s_dual, "dualpane", lang).save(ensure(os.path.join(OUT, f"googleplay/screenshots/tablet/01-dualpane-{lang}.png")))
+        showcase_landscape(W, H, shot("04-dualpane", lang), "dualpane", lang).save(ensure(os.path.join(OUT, f"googleplay/screenshots/tablet/01-dualpane-{lang}.png")))
 
     print("Store assets written to", OUT)
 
