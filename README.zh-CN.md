@@ -97,7 +97,7 @@ App 照常能用。
   <img src="docs/screenshots/demo.gif" width="320" alt="ZRemote 演示" />
 </p>
 
-手机列表 → 对话,以及 ≥768dp 的 IDE 侧栏 + 对话区。原生 UI 对齐官方远程控制布局(同一套 token、断点与结构)。
+手机列表 → 对话,以及 ≥768dp 的 IDE 侧栏 + 对话区。截图为 **Flutter 原生 App** 界面(可用 `tool/capture_screenshots.sh` 重新生成)。原生 UI 对齐官方远程控制布局(同一套 token、断点与结构)。
 
 ---
 

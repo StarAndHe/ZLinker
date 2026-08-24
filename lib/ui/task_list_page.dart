@@ -28,6 +28,12 @@ class TaskListPage extends StatefulWidget {
   @visibleForTesting
   final DeviceSession? sessionOverride;
 
+  /// Test / screenshot seam: pre-select a task in the desktop right pane.
+  @visibleForTesting
+  final String? initialPaneSessionId;
+  @visibleForTesting
+  final String? initialPaneTitle;
+
   const TaskListPage({
     super.key,
     required this.store,
@@ -35,6 +41,8 @@ class TaskListPage extends StatefulWidget {
     required this.device,
     this.theme,
     this.sessionOverride,
+    this.initialPaneSessionId,
+    this.initialPaneTitle,
   });
 
   @override
@@ -45,6 +53,13 @@ class _TaskListPageState extends State<TaskListPage> {
   bool _collapsed = false;
   bool _runningFirst = false;
   final Set<String> _manualExpand = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _paneSessionId = widget.initialPaneSessionId;
+    _paneTitle = widget.initialPaneTitle;
+  }
 
   /// Dual-pane desktop selection (≥768px): the task opened in the right
   /// pane instead of a pushed route.

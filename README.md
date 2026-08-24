@@ -111,8 +111,10 @@ with its own connection.
   <img src="docs/screenshots/demo.gif" width="320" alt="ZRemote demo" />
 </p>
 
-Mobile list → chat, and the ≥768dp IDE sidebar + chat pane. The native
-UI mirrors the official remote layout (same tokens, breakpoints, chrome).
+Mobile list → chat, and the ≥768dp IDE sidebar + chat pane. Screenshots
+are captured from the **Flutter app** (see `tool/capture_screenshots.sh`).
+The native UI mirrors the official remote layout (same tokens, breakpoints,
+chrome).
 
 ---
 
