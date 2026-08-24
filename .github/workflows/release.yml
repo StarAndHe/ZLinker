@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 jobs:
   android:
@@ -45,6 +46,7 @@ jobs:
         run: flutter build appbundle --release --dart-define=APP_CHANNEL=play
 
       - name: Upload to Google Play (internal track)
+        if: startsWith(github.ref, 'refs/tags/')
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
@@ -70,7 +72,7 @@ jobs:
           path: zremote-${{ github.ref_name }}.apk
 
   ios:
-    name: Build iOS (unsigned)
+    name: Build iOS (signed)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -83,20 +85,59 @@ jobs:
       - name: Pub get
         run: flutter pub get
 
-      - name: Build iOS (no codesign)
+      - name: Restore App Store Connect API key
+        env:
+          APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
         run: |
-          flutter build ios --release --no-codesign \
-            --dart-define=APP_CHANNEL=appstore
+          mkdir -p "$RUNNER_TEMP/private_keys" ./private_keys
+          echo "$APPLE_API_KEY_B64" | base64 -d > "$RUNNER_TEMP/AuthKey.p8"
+          cp "$RUNNER_TEMP/AuthKey.p8" "./private_keys/AuthKey_${{ secrets.APPLE_API_KEY_ID }}.p8"
 
-      - name: Pack Runner.app
+      - name: Build iOS framework
+        run: flutter build ios --release --no-codesign --dart-define=APP_CHANNEL=appstore
+
+      - name: Archive (auto signing via ASC API key)
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: |
-          cd build/ios/iphoneos
-          zip -r "$GITHUB_WORKSPACE/zremote-${{ github.ref_name }}-ios-unsigned.zip" Runner.app
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner             -configuration Release -destination 'generic/platform=iOS'             -allowProvisioningUpdates             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8"             -authenticationKeyID "$APPLE_API_KEY_ID"             -authenticationKeyIssuerID "$APPLE_API_ISSUER_ID"             archive -archivePath "$RUNNER_TEMP/Runner.xcarchive" | xcbeautify || true
+          test -d "$RUNNER_TEMP/Runner.xcarchive"
+
+      - name: Export IPA
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" << 'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store</string>
+            <key>teamID</key><string>DSA846ZFPA</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive             -archivePath "$RUNNER_TEMP/Runner.xcarchive"             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"             -exportPath build/ipa             -allowProvisioningUpdates             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8"             -authenticationKeyID "$APPLE_API_KEY_ID"             -authenticationKeyIssuerID "$APPLE_API_ISSUER_ID"
+          ls build/ipa
+
+      - name: Upload to TestFlight
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: apple-actions/upload-testflight-release@v3
+        with:
+          filePath: build/ipa/Runner.ipa
+          apiIssuer: ${{ secrets.APPLE_API_ISSUER_ID }}
+
+      - name: Rename IPA artifact
+        run: mv build/ipa/Runner.ipa zlinker-${{ github.ref_name }}.ipa
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ios-app
-          path: zremote-${{ github.ref_name }}-ios-unsigned.zip
+          name: ios-ipa
+          path: zlinker-${{ github.ref_name }}.ipa
 
   release:
     name: Publish GitHub Release
@@ -111,6 +152,7 @@ jobs:
           merge-multiple: true
 
       - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
