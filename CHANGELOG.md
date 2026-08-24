@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-08-24
+
+### Changed
+
+- Full ZLinker rebrand: package name, app display name, `zlinker://` deep
+  link scheme, widget resources, storage keys, artifact filenames.
+- Release artifacts are now `zlinker-*`; signed `.ipa` replaces the
+  unsigned zip and uploads to TestFlight automatically.
+
+### Added
+
+- Store listing asset kit under `docs/store` (bilingual copy, iPhone/iPad
+  screenshots, icons, feature graphics) plus `tool/gen_store_assets.py`.
+
 ## [1.6.0] - 2026-08-24
 
 ### Changed
