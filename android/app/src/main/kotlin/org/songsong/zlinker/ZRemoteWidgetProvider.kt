@@ -1,4 +1,4 @@
-package org.songsong.zremote
+package org.songsong.zlinker
 
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager

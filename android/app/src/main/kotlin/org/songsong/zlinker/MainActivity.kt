@@ -1,4 +1,4 @@
-package org.songsong.zremote
+package org.songsong.zlinker
 
 import android.content.Intent
 import io.flutter.embedding.android.FlutterActivity

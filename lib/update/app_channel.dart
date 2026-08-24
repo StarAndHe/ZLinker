@@ -9,7 +9,7 @@
 const appChannel = String.fromEnvironment('APP_CHANNEL',
     defaultValue: 'github');
 
-const _playPackageId = 'org.songsong.zremote';
+const _playPackageId = 'org.songsong.zlinker';
 
 /// Filled when the App Store listing exists (numeric id). Until then the
 /// appstore channel shows a hint instead of a broken link.

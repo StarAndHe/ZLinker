@@ -51,7 +51,7 @@ class HomeWidgetBridge {
       return;
     }
     try {
-      await HomeWidget.setAppGroupId('group.org.songsong.zremote')
+      await HomeWidget.setAppGroupId('group.org.songsong.zlinker')
           .timeout(const Duration(milliseconds: 500));
     } catch (_) {}
   }
