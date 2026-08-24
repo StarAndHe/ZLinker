@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-08-24
+
+### Changed
+
+- **Rebrand to ZLinker**: bundle id `org.songsong.zlinker` (Android applicationId
+  and iOS bundle id), Play store listing name ZLinker. Existing zremote-id
+  installs need a fresh install (new app identity).
+- CI now builds a signed `.aab` and uploads it to Google Play internal track
+  on every release tag; in-app update check on the play channel routes to the
+  store listing.
+
 ## [1.5.1] - 2026-08-24
 
 ### Changed

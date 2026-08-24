@@ -41,6 +41,24 @@ jobs:
       - name: Build APK (github channel)
         run: flutter build apk --release --dart-define=APP_CHANNEL=github
 
+      - name: Build AAB (play channel)
+        run: flutter build appbundle --release --dart-define=APP_CHANNEL=play
+
+      - name: Upload to Google Play (internal track)
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: org.songsong.zlinker
+          releaseFiles: build/app/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+
       - name: Rename artifact
         run: |
           mv build/app/outputs/flutter-apk/app-release.apk \
