@@ -63,6 +63,7 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
   flutter_launcher_icons: ^0.14.4
+  web: ^1.1.1
 
 # Launcher icons — regenerate with: dart run flutter_launcher_icons
 # Source art is produced by tool/icon_gen.dart.

@@ -13,6 +13,7 @@ class FakeDeviceSession extends DeviceSession {
     required super.params,
     List<Map<String, dynamic>> entries = const [],
     List<Map<String, dynamic>> workspaces = const [],
+    this._chatRows = const [],
   })  : status = DeviceStatus.connected,
         sessions = SessionsIndexState(),
         super() {
@@ -32,6 +33,7 @@ class FakeDeviceSession extends DeviceSession {
 
   late List<Map<String, dynamic>> _workspaces;
   Map<String, dynamic>? _active;
+  final List<Map<String, dynamic>> _chatRows;
 
   @override
   List<Map<String, dynamic>> get workspaces => _workspaces;
@@ -48,11 +50,40 @@ class FakeDeviceSession extends DeviceSession {
   }
 
   @override
-  Future<ChatHandle> subscribe(String sessionId) async =>
-      ChatHandle(state: ConversationState(), close: () async {});
+  Future<ChatHandle> subscribe(String sessionId) async {
+    final state = ConversationState();
+    if (_chatRows.isNotEmpty) {
+      state.applyFrame({
+        'toSeq': 1,
+        'payload': {
+          'kind': 'snapshot',
+          'snapshot': {
+            'sessionId': sessionId,
+            'logEpoch': 'e1',
+            'revision': 1,
+            'rows': {
+              'window': _chatRows,
+              'totalCount': _chatRows.length,
+            },
+          },
+        },
+      }, onGap: () {});
+    }
+    return ChatHandle(state: state, close: () async {});
+  }
 
   @override
   Future<WorkspacePrep> prepareWorkspace() async => WorkspacePrep.fromMap({
+        'configOptions': [
+          {
+            'id': 'model',
+            'name': '模型',
+            'currentValue': 'builtin/glm-5.2',
+            'options': [
+              {'value': 'builtin/glm-5.2', 'name': 'GLM-5.2'},
+            ],
+          },
+        ],
         'slashCommands': [
           {'name': 'compact', 'description': '压缩上下文', 'source': 'builtin'},
         ],
