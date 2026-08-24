@@ -26,7 +26,7 @@ tasks.register<Delete>("clean") {
 // All Kotlin sources (app + plugin subprojects like home_widget) must compile
 // with the same JVM target; home_widget inlines bytecode that requires 11+.
 subprojects {
-    tasks.withType<org.jetbrains.kotlin.gradle.dsl.KotlinJvmCompile>().configureEach {
+    tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile>().configureEach {
         compilerOptions {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
