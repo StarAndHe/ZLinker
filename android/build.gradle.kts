@@ -31,13 +31,14 @@ subprojects {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
     }
-    // afterEvaluate: AGP writes compileOptions (default 1.8) into the Java
-    // tasks during plugin application, which happens after this block runs;
-    // re-assert 17 afterwards so the last write wins.
-    afterEvaluate {
-        tasks.withType<JavaCompile>().configureEach {
-            sourceCompatibility = JavaVersion.VERSION_17.toString()
-            targetCompatibility = JavaVersion.VERSION_17.toString()
+    // Extension-level: AGP propagates these into its compile tasks itself,
+    // so there is no ordering race with plugin application.
+    plugins.withId("com.android.library") {
+        extensions.configure<com.android.build.gradle.BaseExtension>("android") {
+            compileOptions {
+                sourceCompatibility = JavaVersion.VERSION_17
+                targetCompatibility = JavaVersion.VERSION_17
+            }
         }
     }
 }
