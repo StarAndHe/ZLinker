@@ -11,10 +11,10 @@
 
 [English](README.md) · [为什么做 ZRemote?](#-为什么做-zremote) · [功能](#-功能) · [快速开始](#-快速开始) · [架构](#-架构) · [路线图](#️-路线图)
 
-[![Release](https://img.shields.io/github/v/release/opensymph/ZRemote?style=flat-square&logo=github&color=blue)](https://github.com/opensymph/ZRemote/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/opensymph/ZRemote/ci.yml?style=flat-square&label=build)](https://github.com/opensymph/ZRemote/actions/workflows/ci.yml)
-[![Stars](https://img.shields.io/github/stars/opensymph/ZRemote?style=flat-square&color=yellow)](https://github.com/opensymph/ZRemote/stargazers)
-[![Forks](https://img.shields.io/github/forks/opensymph/ZRemote?style=flat-square&color=orange)](https://github.com/opensymph/ZRemote/forks)
+[![Release](https://img.shields.io/github/v/release/opensymph/ZLinker?style=flat-square&logo=github&color=blue)](https://github.com/opensymph/ZLinker/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/opensymph/ZLinker/ci.yml?style=flat-square&label=build)](https://github.com/opensymph/ZLinker/actions/workflows/ci.yml)
+[![Stars](https://img.shields.io/github/stars/opensymph/ZLinker?style=flat-square&color=yellow)](https://github.com/opensymph/ZLinker/stargazers)
+[![Forks](https://img.shields.io/github/forks/opensymph/ZLinker?style=flat-square&color=orange)](https://github.com/opensymph/ZLinker/forks)
 [![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-lightgrey?style=flat-square)](#-快速开始)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![Flutter](https://img.shields.io/badge/Flutter-3.44%2B-blue?style=flat-square&logo=flutter)](https://flutter.dev)
@@ -111,7 +111,7 @@ https://zcode.z.ai/remote/v4?sid=...&hash=...&t=...&mid=...&name=...
 
 ### 方式 A · 下载预编译 APK
 
-从 [Releases](https://github.com/opensymph/ZRemote/releases) 下载最新 APK,装到手机上,扫桌面二维码添加第一台设备。
+从 [Releases](https://github.com/opensymph/ZLinker/releases) 下载最新 APK,装到手机上,扫桌面二维码添加第一台设备。
 
 > ⚠️ 请只安装你信任来源的 APK —— 远程链接等同于设备凭据。审查代码,或选择方式 B 自行构建。
 
@@ -120,7 +120,7 @@ https://zcode.z.ai/remote/v4?sid=...&hash=...&t=...&mid=...&name=...
 前置条件:[Flutter](https://docs.flutter.dev/get-started/install) 3.44+(Dart 3.12+)。构建 Android 需要 JDK + Android SDK;构建 iOS 需要 Mac + Xcode。
 
 ```bash
-git clone https://github.com/opensymph/ZRemote.git
+git clone https://github.com/opensymph/ZLinker.git
 cd ZRemote
 flutter pub get
 

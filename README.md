@@ -14,10 +14,10 @@ fallback for anything the native path can't do yet.
 
 [简体中文](README.zh-CN.md) · [Why ZRemote?](#-why-zremote) · [Features](#-features) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Roadmap](#️-roadmap)
 
-[![Release](https://img.shields.io/github/v/release/opensymph/ZRemote?style=flat-square&logo=github&color=blue)](https://github.com/opensymph/ZRemote/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/opensymph/ZRemote/ci.yml?style=flat-square&label=build)](https://github.com/opensymph/ZRemote/actions/workflows/ci.yml)
-[![Stars](https://img.shields.io/github/stars/opensymph/ZRemote?style=flat-square&color=yellow)](https://github.com/opensymph/ZRemote/stargazers)
-[![Forks](https://img.shields.io/github/forks/opensymph/ZRemote?style=flat-square&color=orange)](https://github.com/opensymph/ZRemote/forks)
+[![Release](https://img.shields.io/github/v/release/opensymph/ZLinker?style=flat-square&logo=github&color=blue)](https://github.com/opensymph/ZLinker/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/opensymph/ZLinker/ci.yml?style=flat-square&label=build)](https://github.com/opensymph/ZLinker/actions/workflows/ci.yml)
+[![Stars](https://img.shields.io/github/stars/opensymph/ZLinker?style=flat-square&color=yellow)](https://github.com/opensymph/ZLinker/stargazers)
+[![Forks](https://img.shields.io/github/forks/opensymph/ZLinker?style=flat-square&color=orange)](https://github.com/opensymph/ZLinker/forks)
 [![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20iOS-lightgrey?style=flat-square)](#-quick-start)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
 [![Flutter](https://img.shields.io/badge/Flutter-3.44%2B-blue?style=flat-square&logo=flutter)](https://flutter.dev)
@@ -130,7 +130,7 @@ https://zcode.z.ai/remote/v4?sid=...&hash=...&t=...&mid=...&name=...
 ### Option A · Download a prebuilt APK
 
 Grab the latest APK from
-[Releases](https://github.com/opensymph/ZRemote/releases), install it on your
+[Releases](https://github.com/opensymph/ZLinker/releases), install it on your
 phone, and add your first device by scanning the QR code.
 
 > ⚠️ Only install APKs from a Release you trust — a remote-control link is a
@@ -143,7 +143,7 @@ Prerequisites: [Flutter](https://docs.flutter.dev/get-started/install) 3.44+
 Xcode.
 
 ```bash
-git clone https://github.com/opensymph/ZRemote.git
+git clone https://github.com/opensymph/ZLinker.git
 cd ZRemote
 flutter pub get
 
