@@ -521,7 +521,7 @@ void main() {
 
   testWidgets('tapping a collapsed workspace expands and opens it',
       (tester) async {
-    final (_, __, session) = await setupTwoWorkspaces(tester);
+    final (_, _, session) = await setupTwoWorkspaces(tester);
 
     await tester.tap(find.text('beta'));
     await tester.pump();
