@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../protocol/automation.dart';
+import '../protocol/conversation.dart';
 import '../state/device_session.dart';
 import '../state/device_store.dart';
+import 'model_option_field.dart';
 import 'theme.dart';
 import 'ui_settings.dart';
 
@@ -190,13 +192,17 @@ class _AutomationsPaneState extends State<AutomationsPane> {
   }
 
   Future<void> _showSheet({AutomationItem? edit}) async {
+    final session = widget.session;
     final input = await showModalBottomSheet<AutomationInput>(
       context: context,
       isScrollControlled: true,
-      builder: (c) => AutomationSheet(initial: edit?.toInput()),
+      builder: (c) => AutomationSheet(
+        initial: edit?.toInput(),
+        loadOptions:
+            session is DeviceSession ? session.prepareWorkspace : null,
+      ),
     );
     if (input == null) return;
-    final session = widget.session;
     if (session == null) return;
     await _runOp(() async {
       if (edit == null) {
@@ -510,7 +516,11 @@ class _AutomationsPaneState extends State<AutomationsPane> {
 /// follows the official web form: title → prompt → model → trigger rule.
 class AutomationSheet extends StatefulWidget {
   final AutomationInput? initial;
-  const AutomationSheet({super.key, this.initial});
+
+  /// prepareWorkspace loader (the full device session): drives the model /
+  /// thought-level selectors — desktop parity, pick instead of type.
+  final Future<WorkspacePrep> Function()? loadOptions;
+  const AutomationSheet({super.key, this.initial, this.loadOptions});
 
   @override
   State<AutomationSheet> createState() => AutomationSheetState();
@@ -523,10 +533,12 @@ class AutomationSheetState extends State<AutomationSheet> {
   late final TextEditingController _interval;
   late final TextEditingController _maxRuns;
   late final TextEditingController _delay;
-  final _model = TextEditingController();
-  final _thought = TextEditingController();
-  final _targetTask = TextEditingController();
+  late final TextEditingController _targetTask;
 
+  /// Selected model option (`provider/model` composite) split for the wire
+  /// (automation carries model + provider separately); null = 默认.
+  String? _modelValue;
+  String? _thought;
   late String _trigger;
   late String _intervalUnit;
   late bool _recurring;
@@ -548,11 +560,13 @@ class AutomationSheetState extends State<AutomationSheet> {
     _intervalUnit = init?.intervalUnit ?? 'day';
     _recurring = init?.recurring ?? true;
     _mode = init?.mode;
-    _model.text = init?.model ?? '';
-    _thought.text = init?.thoughtLevel ?? '';
-    _targetTask.text = init?.targetTaskId ?? '';
+    _modelValue = (init?.provider ?? '').isNotEmpty && (init?.model ?? '').isNotEmpty
+        ? '${init!.provider}/${init.model}'
+        : init?.model;
+    _thought = init?.thoughtLevel;
+    _targetTask = TextEditingController(text: init?.targetTaskId ?? '');
     _advanced =
-        (init?.model ?? '').isNotEmpty || (init?.thoughtLevel ?? '').isNotEmpty;
+        (_modelValue ?? '').isNotEmpty || (_thought ?? '').isNotEmpty;
   }
 
   @override
@@ -563,13 +577,24 @@ class AutomationSheetState extends State<AutomationSheet> {
     _interval.dispose();
     _maxRuns.dispose();
     _delay.dispose();
-    _model.dispose();
-    _thought.dispose();
     _targetTask.dispose();
     super.dispose();
   }
 
   void _submit() {
+    // Split the composite option value back into the wire's provider+model.
+    String? provider;
+    String? model;
+    final mv = _modelValue;
+    if (mv != null && mv.isNotEmpty) {
+      final idx = mv.lastIndexOf('/');
+      if (idx > 0) {
+        provider = mv.substring(0, idx);
+        model = mv.substring(idx + 1);
+      } else {
+        model = mv;
+      }
+    }
     final input = AutomationInput(
       title: _title.text,
       prompt: _prompt.text,
@@ -580,11 +605,14 @@ class AutomationSheetState extends State<AutomationSheet> {
       recurring: _recurring,
       maxRuns: int.tryParse(_maxRuns.text.trim()),
       relativeDelayMinutes: int.tryParse(_delay.text.trim()),
-      model: _model.text.trim().isEmpty ? null : _model.text.trim(),
+      model: model,
+      provider: provider,
       mode: _mode,
-      thoughtLevel: _thought.text.trim().isEmpty ? null : _thought.text.trim(),
-      targetTaskId:
-          _targetTask.text.trim().isEmpty ? null : _targetTask.text.trim(),
+      thoughtLevel:
+          _thought == null || _thought!.isEmpty ? null : _thought,
+      targetTaskId: _targetTask.text.trim().isEmpty
+          ? null
+          : _targetTask.text.trim(),
     );
     final error = input.validate();
     if (error != null) {
@@ -630,11 +658,13 @@ class AutomationSheetState extends State<AutomationSheet> {
                   InputDecoration(labelText: tr(context, 'auto.prompt')),
             ),
             const SizedBox(height: 10),
-            TextField(
-              controller: _model,
-              decoration: InputDecoration(
-                  labelText: tr(context, 'auto.model'),
-                  hintText: 'GLM-5.2'),
+            ModelOptionField(
+              loadOptions: widget.loadOptions,
+              optionId: 'model',
+              labelText: tr(context, 'auto.model'),
+              noneLabel: tr(context, 'auto.model.default'),
+              value: _modelValue,
+              onChanged: (v) => setState(() => _modelValue = v),
             ),
             const SizedBox(height: 16),
             Text(tr(context, 'auto.trigger'),
@@ -773,11 +803,13 @@ class AutomationSheetState extends State<AutomationSheet> {
           onChanged: (v) => setState(() => _mode = v),
         ),
         const SizedBox(height: 10),
-        TextField(
-          controller: _thought,
-          decoration: InputDecoration(
-              labelText: tr(context, 'auto.thoughtLevel'),
-              hintText: 'max / high / nothink'),
+        ModelOptionField(
+          loadOptions: widget.loadOptions,
+          optionId: 'thought_level',
+          labelText: tr(context, 'auto.thoughtLevel'),
+          noneLabel: tr(context, 'auto.thoughtLevel.default'),
+          value: _thought,
+          onChanged: (v) => setState(() => _thought = v),
         ),
         const SizedBox(height: 10),
         TextField(

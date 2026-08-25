@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../protocol/conversation.dart';
 import '../protocol/off_peak.dart';
 import '../state/device_session.dart';
 import '../state/device_store.dart';
 import 'chat/chat_page.dart';
+import 'model_option_field.dart';
 import 'remote_page.dart';
 import 'theme.dart';
 import 'ui_settings.dart';
@@ -128,7 +130,11 @@ class _OffPeakPageState extends State<OffPeakPage> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      builder: (c) => OffPeakSheet(session: session),
+      builder: (c) => OffPeakSheet(
+        session: session,
+        loadOptions:
+            session is DeviceSession ? session.prepareWorkspace : null,
+      ),
     );
     await _load();
   }
@@ -580,7 +586,11 @@ class _OffPeakPageState extends State<OffPeakPage> {
 /// not part of the off-peak-run wire schema.
 class OffPeakSheet extends StatefulWidget {
   final OffPeakHost session;
-  const OffPeakSheet({super.key, required this.session});
+
+  /// prepareWorkspace loader (the full device session): drives the model
+  /// selector — the desktop form picks from available models, no typing.
+  final Future<WorkspacePrep> Function()? loadOptions;
+  const OffPeakSheet({super.key, required this.session, this.loadOptions});
 
   @override
   State<OffPeakSheet> createState() => _OffPeakSheetState();
@@ -589,7 +599,10 @@ class OffPeakSheet extends StatefulWidget {
 class _OffPeakSheetState extends State<OffPeakSheet> {
   final _title = TextEditingController();
   final _prompt = TextEditingController();
-  final _model = TextEditingController();
+
+  /// Selected model option value (`provider/model` composite); null =
+  /// 默认 — the device decides. Selector, not free text (desktop parity).
+  String? _model;
   DateTime? _earliest;
   bool _keepAwake = true;
   String _permission = 'build';
@@ -601,7 +614,6 @@ class _OffPeakSheetState extends State<OffPeakSheet> {
   void dispose() {
     _title.dispose();
     _prompt.dispose();
-    _model.dispose();
     super.dispose();
   }
 
@@ -646,7 +658,7 @@ class _OffPeakSheetState extends State<OffPeakSheet> {
         workspacePath: workspacePath,
         workspaceIdentity: scope['workspaceIdentity'] as String?,
         permissionMode: _permission,
-        model: _model.text.trim().isEmpty ? null : _model.text.trim(),
+        model: _model,
         earliestAtMs: _earliest?.millisecondsSinceEpoch,
         title: _title.text.trim().isEmpty ? null : _title.text.trim(),
       ));
@@ -718,10 +730,13 @@ class _OffPeakSheetState extends State<OffPeakSheet> {
                   InputDecoration(labelText: tr(context, 'op.prompt')),
             ),
             const SizedBox(height: 10),
-            TextField(
-              controller: _model,
-              decoration: InputDecoration(
-                  labelText: tr(context, 'op.model'), hintText: 'GLM-5.2'),
+            ModelOptionField(
+              loadOptions: widget.loadOptions,
+              optionId: 'model',
+              labelText: tr(context, 'op.model'),
+              noneLabel: tr(context, 'op.model.default'),
+              value: _model,
+              onChanged: (v) => setState(() => _model = v),
             ),
             const SizedBox(height: 10),
             InkWell(
