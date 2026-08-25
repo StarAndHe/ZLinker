@@ -483,7 +483,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-        find.textContaining('模型切换 glm-5.2 → glm-5.2-air'), findsOneWidget);
+        find.textContaining('模型已切换 glm-5.2 → glm-5.2-air'), findsOneWidget);
   });
 
   testWidgets('user bubble hugs short text (no maxLines inflation)',

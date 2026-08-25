@@ -3382,7 +3382,23 @@ class _ModelModeSheet extends StatelessWidget {
                   style: TextStyle(
                       fontSize: 13, color: ZInk.solid(context))),
               const SizedBox(height: 8),
-              for (final v in modelOption.options)
+              // Official web menu groups models by provider (BigModel /
+              // tx / kimi_zz …): header whenever the provider changes.
+              for (final (i, v) in modelOption.options.indexed) ...[
+                if (i == 0 ||
+                    v.modelProviderName !=
+                        modelOption.options[i - 1].modelProviderName)
+                  Padding(
+                    padding: EdgeInsets.only(
+                        top: i == 0 ? 0 : 10, bottom: 2),
+                    child: Text(
+                      v.modelProviderName ?? v.name,
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: ZInk.ghost(context)),
+                    ),
+                  ),
                 ListTile(
                   dense: true,
                   contentPadding: EdgeInsets.zero,
@@ -3442,6 +3458,7 @@ class _ModelModeSheet extends StatelessWidget {
                     }
                   },
                 ),
+              ],
               const SizedBox(height: 12),
             ] else
               Text(trP(context, 'chat.sheet.currentModel',
