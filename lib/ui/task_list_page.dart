@@ -50,9 +50,16 @@ class TaskListPage extends StatefulWidget {
 }
 
 class _TaskListPageState extends State<TaskListPage> {
-  bool _collapsed = false;
-  bool _runningFirst = false;
-  final Set<String> _manualExpand = {};
+  /// Per-workspace expand overrides, both directions (official web model):
+  /// absent = default target state — only the ACTIVE workspace (the one
+  /// owning the device's live session) is expanded; every other card starts
+  /// collapsed. Overrides survive until 收起全部 clears them.
+  final Map<String, bool> _expandOverrides = {};
+
+  /// Official 整理任务 state: grouping (workspace cards / timeline buckets)
+  /// and ordering (updated = lastActivityAt, created = createdAt).
+  String _groupBy = 'workspace';
+  String _sortBy = 'updated';
 
   @override
   void initState() {
@@ -75,6 +82,45 @@ class _TaskListPageState extends State<TaskListPage> {
 
   DeviceSession? get _session =>
       widget.sessionOverride ?? widget.hub.sessionOf(widget.device.id);
+
+  bool _isWorkspaceActive(DeviceSession session, Map<String, dynamic> ws) =>
+      identical(session.activeWorkspace, ws) ||
+      workspaceKeyOf(ws) ==
+          workspaceKeyOf(session.activeWorkspace ?? const {});
+
+  /// Shared expand state for the mobile card and the desktop sidebar folder:
+  /// manual override wins, otherwise the active workspace is expanded.
+  bool _isWorkspaceExpanded(String key, {required bool isActive}) =>
+      _expandOverrides[key] ?? isActive;
+
+  /// Shared header tap: two-way toggle (official web aria-expanded flips both
+  /// ways). Tapping a non-active workspace also opens it on the device — the
+  /// freshly opened workspace is active and therefore starts expanded.
+  void _toggleWorkspace(DeviceSession session, Map<String, dynamic> ws) {
+    final isActive = _isWorkspaceActive(session, ws);
+    final key = workspaceKeyOf(ws) ?? workspaceTitle(ws);
+    if (!isActive) session.openWorkspace(ws);
+    setState(() => _expandOverrides[key] =
+        !_isWorkspaceExpanded(key, isActive: isActive));
+  }
+
+  /// 收起全部工作区: one-way collapse of every workspace (official web keeps
+  /// the label and icon constant; tapping it again just re-collapses).
+  void _collapseAllWorkspaces(DeviceSession? session) {
+    final workspaces = session?.workspaces ?? const <Map<String, dynamic>>[];
+    setState(() {
+      for (final ws in workspaces) {
+        _expandOverrides[workspaceKeyOf(ws) ?? workspaceTitle(ws)] = false;
+      }
+    });
+  }
+
+  /// Official 整理任务 ordering: 更新时间 = lastActivityAt (device default),
+  /// 创建时间 = createdAt.
+  List<SessionEntry> _sortedEntries(List<SessionEntry> entries) {
+    if (_sortBy != 'created') return entries;
+    return [...entries]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -229,6 +275,13 @@ class _TaskListPageState extends State<TaskListPage> {
               shortcut: 'Ctrl+K',
               onTap: () => _openCommandSearch(),
             ),
+            _sidebarNavItem(
+              context,
+              icon: Icons.extension_outlined,
+              label: tr(context, 'tasks.sidebar.plugins'),
+              shortcut: '',
+              onTap: () => _openPluginMarketplaceHint(),
+            ),
             const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.fromLTRB(14, 4, 8, 6),
@@ -242,35 +295,19 @@ class _TaskListPageState extends State<TaskListPage> {
                             color: ZInk.faint(context))),
                   ),
                   IconButton(
-                    tooltip: _collapsed
-                        ? tr(context, 'tasks.expandAll')
-                        : tr(context, 'tasks.collapseAll'),
-                    icon: Icon(
-                      _collapsed
-                          ? Icons.unfold_more_outlined
-                          : Icons.unfold_less_outlined,
-                      size: 16,
-                    ),
+                    tooltip: tr(context, 'tasks.collapseAll'),
+                    icon: const Icon(Icons.keyboard_double_arrow_up,
+                        size: 16),
                     color: ZInk.muted(context),
                     visualDensity: VisualDensity.compact,
-                    onPressed: () => setState(() {
-                      _collapsed = !_collapsed;
-                      if (_collapsed) _manualExpand.clear();
-                    }),
+                    onPressed: () => _collapseAllWorkspaces(_session),
                   ),
                   IconButton(
-                    tooltip: tr(context, 'tasks.retry'),
-                    icon: const Icon(Icons.refresh, size: 16),
+                    tooltip: tr(context, 'tasks.sidebar.filterSort'),
+                    icon: const Icon(Icons.filter_list, size: 16),
                     color: ZInk.muted(context),
                     visualDensity: VisualDensity.compact,
-                    onPressed: () {
-                      final s = _session;
-                      if (s != null) {
-                        s.reloadTasks();
-                      } else {
-                        widget.hub.ensure(widget.device);
-                      }
-                    },
+                    onPressed: () => _showTidyPanel(context),
                   ),
                 ],
               ),
@@ -345,12 +382,10 @@ class _TaskListPageState extends State<TaskListPage> {
 
   Widget _desktopWorkspaceFolder(
       BuildContext context, DeviceSession session, Map<String, dynamic> ws) {
-    final isActive = identical(session.activeWorkspace, ws) ||
-        workspaceKeyOf(ws) ==
-            workspaceKeyOf(session.activeWorkspace ?? const {});
+    final isActive = _isWorkspaceActive(session, ws);
     final key = workspaceKeyOf(ws) ?? workspaceTitle(ws);
-    var expanded = !_collapsed || _manualExpand.contains(key);
-    if (!isActive) expanded = expanded && _manualExpand.contains(key);
+    final expanded =
+        _isWorkspaceExpanded(key, isActive: isActive);
     final sessions = isActive ? session.sessions : null;
     final entries =
         sessions?.ready == true ? sessions!.list : const <SessionEntry>[];
@@ -360,17 +395,7 @@ class _TaskListPageState extends State<TaskListPage> {
       children: [
         InkWell(
           borderRadius: BorderRadius.circular(8),
-          onTap: () {
-            if (!isActive) session.openWorkspace(ws);
-            setState(() {
-              if (expanded) {
-                _manualExpand.remove(key);
-              } else {
-                _manualExpand.add(key);
-              }
-              if (!isActive) _manualExpand.add(key);
-            });
-          },
+          onTap: () => _toggleWorkspace(session, ws),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             child: Row(
@@ -632,6 +657,8 @@ class _TaskListPageState extends State<TaskListPage> {
               if (session != null) ..._pinnedGroup(context, session),
               if (session == null || session.workspaces.isEmpty)
                 _fallback(context, session)
+              else if (_groupBy == 'timeline')
+                ..._timelineGroups(context, session)
               else
                 for (final ws in session.workspaces)
                   Padding(
@@ -642,6 +669,33 @@ class _TaskListPageState extends State<TaskListPage> {
           ),
         );
       },
+    );
+  }
+
+  /// 插件市场: the marketplace is managed by the desktop app (the remote
+  /// web button has no embedded view either) — surface that honestly.
+  Future<void> _openPluginMarketplaceHint() {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(tr(sheetCtx, 'tasks.sidebar.plugins'),
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              Text(tr(sheetCtx, 'tasks.sidebar.pluginsHint'),
+                  style: TextStyle(
+                      fontSize: 13, height: 1.6, color: ZInk.faint(sheetCtx))),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -671,50 +725,106 @@ class _TaskListPageState extends State<TaskListPage> {
             ],
           ),
         ),
-        for (final b in [
-          (
-            _collapsed
-                ? tr(context, 'tasks.expandAll')
-                : tr(context, 'tasks.collapseAll'),
-            _collapsed
-                ? Icons.unfold_more_outlined
-                : Icons.unfold_less_outlined,
-            ZInk.muted(context),
-            () => setState(() {
-                  _collapsed = !_collapsed;
-                  if (_collapsed) _manualExpand.clear();
-                }),
-          ),
-          (
-            tr(context, 'tasks.tidy'),
-            _runningFirst
-                ? Icons.filter_alt_outlined
-                : Icons.filter_alt_off_outlined,
-            _runningFirst ? ZColors.sky500 : ZInk.muted(context),
-            () => setState(() => _runningFirst = !_runningFirst),
-          ),
-          (
-            tr(context, 'tasks.retry'),
-            Icons.refresh,
-            ZInk.muted(context),
-            () {
-              final s = _session;
-              if (s != null) {
-                s.reloadTasks();
-              } else {
-                widget.hub.ensure(widget.device);
-              }
-            },
-          ),
-        ])
-          IconButton(
-            tooltip: b.$1,
-            icon: Icon(b.$2),
-            iconSize: 20,
-            color: b.$3,
-            onPressed: b.$4,
-          ),
+        // Official header actions: the collapse-all button keeps its label
+        // and icon in every state (one-way collapse, like the web).
+        IconButton(
+          tooltip: tr(context, 'tasks.collapseAll'),
+          icon: const Icon(Icons.keyboard_double_arrow_up),
+          iconSize: 20,
+          color: ZInk.muted(context),
+          onPressed: () => _collapseAllWorkspaces(session),
+        ),
+        IconButton(
+          tooltip: tr(context, 'tasks.tidy'),
+          icon: const Icon(Icons.filter_list),
+          iconSize: 20,
+          color: ZInk.muted(context),
+          onPressed: () => _showTidyPanel(context),
+        ),
+        IconButton(
+          tooltip: tr(context, 'tasks.refreshAll'),
+          icon: const Icon(Icons.refresh),
+          iconSize: 20,
+          color: ZInk.muted(context),
+          onPressed: () {
+            final s = _session;
+            if (s != null) {
+              s.reloadTasks();
+            } else {
+              widget.hub.ensure(widget.device);
+            }
+          },
+        ),
       ],
+    );
+  }
+
+  /// Official 整理任务 panel: group (workspace / timeline) + sort
+  /// (created / updated), radio-style like the web popover.
+  Future<void> _showTidyPanel(BuildContext context) {
+    return showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text(tr(sheetCtx, 'tasks.tidy.groupLabel'),
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600)),
+            ),
+            RadioGroup<String>(
+              groupValue: _groupBy,
+              onChanged: (v) => setState(() => _groupBy = v ?? _groupBy),
+              child: Column(
+                children: [
+                  for (final (value, label) in [
+                    ('workspace', tr(context, 'tasks.tidy.group')),
+                    ('timeline', tr(context, 'tasks.tidy.timeline')),
+                  ])
+                    RadioListTile<String>(
+                      value: value,
+                      title: Text(label),
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, indent: 20, endIndent: 20),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+              child: Text(tr(sheetCtx, 'tasks.tidy.sortLabel'),
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: ZInk.faint(sheetCtx))),
+            ),
+            RadioGroup<String>(
+              groupValue: _sortBy,
+              onChanged: (v) => setState(() => _sortBy = v ?? _sortBy),
+              child: Column(
+                children: [
+                  for (final (value, label) in [
+                    ('created', tr(context, 'tasks.tidy.sort.created')),
+                    ('updated', tr(context, 'tasks.tidy.sort.updated')),
+                  ])
+                    RadioListTile<String>(
+                      value: value,
+                      title: Text(label),
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
     );
   }
 
@@ -796,28 +906,75 @@ class _TaskListPageState extends State<TaskListPage> {
     );
   }
 
+  /// Official 按时间线 grouping: day buckets (今天 / N 天前 / 上周 / 更早)
+  /// with one row per task, each prefixed with its workspace name.
+  List<Widget> _timelineGroups(BuildContext context, DeviceSession session) {
+    final entries = _sortedEntries(session.sessions?.ready == true
+        ? session.sessions!.list
+        : const <SessionEntry>[]);
+    if (entries.isEmpty) {
+      return [Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: Text(tr(context, 'tasks.empty'),
+              style: TextStyle(fontSize: 13, color: ZInk.faint(context))),
+        ),
+      )];
+    }
+    final now = DateTime.now();
+    final wsName = session.activeWorkspace != null
+        ? workspaceTitle(session.activeWorkspace!)
+        : null;
+    final buckets = <String, List<SessionEntry>>{};
+    for (final e in entries) {
+      buckets
+          .putIfAbsent(
+              _timelineBucketLabel(context, e.lastActivityAt, now), () => [])
+          .add(e);
+    }
+    return [
+      for (final bucket in buckets.entries) ...[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 8, 0, 8),
+          child: Text(bucket.key,
+              style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: ZInk.ghost(context))),
+        ),
+        for (final e in bucket.value)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _taskRow(context, session, e, workspaceLabel: wsName),
+          ),
+      ],
+    ];
+  }
+
+  /// Official bucket labels: today / day-count / last week / earlier.
+  String _timelineBucketLabel(
+      BuildContext context, int millis, DateTime now) {
+    final d = DateTime.fromMillisecondsSinceEpoch(millis);
+    final diff = DateTime(now.year, now.month, now.day)
+        .difference(DateTime(d.year, d.month, d.day))
+        .inDays;
+    if (diff <= 0) return tr(context, 'tasks.timeline.today');
+    if (diff <= 6) return trP(context, 'tasks.timeline.daysAgo', ['$diff']);
+    if (diff <= 13) return tr(context, 'tasks.timeline.lastWeek');
+    return tr(context, 'tasks.timeline.earlier');
+  }
+
   /// One workspace card: name + 本地 badge, folder + path, updated-at, task
   /// count + chevron + new-task button; expanded shows the task rows.
   Widget _workspaceCard(
       BuildContext context, DeviceSession session, Map<String, dynamic> ws) {
-    final isActive = identical(session.activeWorkspace, ws) ||
-        workspaceKeyOf(ws) == workspaceKeyOf(session.activeWorkspace ?? const {});
+    final isActive = _isWorkspaceActive(session, ws);
     final key = workspaceKeyOf(ws) ?? workspaceTitle(ws);
-    var expanded = !_collapsed || _manualExpand.contains(key);
-    if (!isActive) expanded = expanded && _manualExpand.contains(key);
+    final expanded = _isWorkspaceExpanded(key, isActive: isActive);
 
     final sessions = isActive ? session.sessions : null;
     var entries = sessions?.ready == true ? sessions!.list : const <SessionEntry>[];
-    if (_runningFirst) {
-      entries = [...entries]..sort((a, b) {
-          int rank(SessionEntry e) => e.phase == 'running' ||
-                  e.phase == 'prewarming'
-              ? 0
-              : 1;
-          final r = rank(a).compareTo(rank(b));
-          return r != 0 ? r : b.lastActivityAt.compareTo(a.lastActivityAt);
-        });
-    }
+    entries = _sortedEntries(entries);
     final lastActivity = entries.isEmpty
         ? null
         : entries.map((e) => e.lastActivityAt).reduce((a, b) => a > b ? a : b);
@@ -835,22 +992,7 @@ class _TaskListPageState extends State<TaskListPage> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           InkWell(
-            onTap: () {
-              if (!isActive) {
-                session.openWorkspace(ws);
-              }
-              setState(() {
-                if (expanded) {
-                  _manualExpand.remove(key);
-                } else {
-                  _manualExpand.add(key);
-                }
-                if (!isActive) {
-                  // freshly opened workspace starts expanded
-                  _manualExpand.add(key);
-                }
-              });
-            },
+            onTap: () => _toggleWorkspace(session, ws),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
@@ -999,12 +1141,18 @@ class _TaskListPageState extends State<TaskListPage> {
   /// The current (latest running / most recent) row gets the official
   /// rounded white/10 highlight.
   Widget _taskRow(
-      BuildContext context, DeviceSession session, SessionEntry entry,
-      {bool highlight = false}) {
+    BuildContext context, DeviceSession session, SessionEntry entry, {
+    bool highlight = false,
+    String? workspaceLabel,
+  }) {
     final (phaseLabel, _) = _phaseVisual(entry.phase);
     final title = entry.title.trim().isEmpty
         ? tr(context, 'tasks.untitled')
         : entry.title;
+    final subtitle = [
+      ?workspaceLabel,
+      relativeTimeShort(context, entry.lastActivityAt),
+    ].join(' · ');
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
       child: Material(
@@ -1034,12 +1182,12 @@ class _TaskListPageState extends State<TaskListPage> {
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                               fontSize: 14.5, fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 3),
-                      Text(
-                        relativeTimeShort(context, entry.lastActivityAt),
-                        style: TextStyle(
-                            fontSize: 12.5, color: ZInk.faint(context)),
-                      ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                          fontSize: 12.5, color: ZInk.faint(context)),
+                    ),
                     ],
                   ),
                 ),

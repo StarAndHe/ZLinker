@@ -425,4 +425,212 @@ void main() {
     await tester.pump();
     expect(find.text('项目'), findsOneWidget);
   });
+
+  // ---- collapse model (official web parity) ----
+
+  Future<(DeviceStore, Device, FakeDeviceSession)> setupTwoWorkspaces(
+      WidgetTester tester) async {
+    usePhone(tester);
+    final (store, device) = await setupDevice();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final session = FakeDeviceSession(
+      deviceId: device.id,
+      params: device.params!,
+      entries: [
+        {
+          'sessionId': 's1',
+          'title': '任务甲',
+          'phase': 'completedSuccess',
+          'lastActivityAt': now - 1000,
+          'createdAt': now - 500000,
+        },
+        {
+          'sessionId': 's2',
+          'title': '任务乙',
+          'phase': 'completedSuccess',
+          'lastActivityAt': now,
+          'createdAt': now - 1000,
+        },
+      ],
+      workspaces: [
+        {'workspacePath': '/repo/alpha', 'workspaceIdentity': 'alpha'},
+        {'workspacePath': '/repo/beta', 'workspaceIdentity': 'beta'},
+      ],
+    );
+    await tester.pumpWidget(wrap(TaskListPage(
+      store: store,
+      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      device: device,
+      sessionOverride: session,
+    )));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    return (store, device, session);
+  }
+
+  Finder cardOf(String title) => find.ancestor(
+        of: find.text(title),
+        matching: find.byType(Card),
+      );
+
+  testWidgets('default: only the active workspace is expanded', (tester) async {
+    await setupTwoWorkspaces(tester);
+    // alpha (first workspace) is active → expanded with task rows.
+    expect(find.text('任务甲'), findsOneWidget);
+    expect(find.text('任务乙'), findsOneWidget);
+    expect(
+      find.descendant(
+          of: cardOf('alpha'), matching: find.byIcon(Icons.keyboard_arrow_up)),
+      findsOneWidget,
+    );
+    // beta is collapsed by default (chevron down, no task rows inside).
+    expect(
+      find.descendant(
+          of: cardOf('beta'), matching: find.byIcon(Icons.keyboard_arrow_down)),
+      findsOneWidget,
+    );
+    expect(
+      find
+          .descendant(of: cardOf('beta'), matching: find.text('任务甲'))
+          .evaluate()
+          .isEmpty,
+      isTrue,
+    );
+  });
+
+  testWidgets('tapping the expanded active card collapses it (both ways)',
+      (tester) async {
+    await setupTwoWorkspaces(tester);
+
+    await tester.tap(find.text('alpha'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('任务甲'), findsNothing);
+    expect(
+      find.descendant(
+          of: cardOf('alpha'), matching: find.byIcon(Icons.keyboard_arrow_down)),
+      findsOneWidget,
+    );
+
+    // …and tapping again re-expands it.
+    await tester.tap(find.text('alpha'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('任务甲'), findsOneWidget);
+  });
+
+  testWidgets('tapping a collapsed workspace expands and opens it',
+      (tester) async {
+    final (_, __, session) = await setupTwoWorkspaces(tester);
+
+    await tester.tap(find.text('beta'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // beta became the active workspace and shows the task rows…
+    expect(session.activeWorkspace?['workspaceIdentity'], 'beta');
+    expect(
+      find.descendant(of: cardOf('beta'), matching: find.text('任务甲')),
+      findsOneWidget,
+    );
+    // …while alpha falls back to its default (inactive → collapsed).
+    expect(
+      find
+          .descendant(of: cardOf('alpha'), matching: find.text('任务甲'))
+          .evaluate()
+          .isEmpty,
+      isTrue,
+    );
+  });
+
+  testWidgets('收起全部 collapses everything, then active re-expands alone',
+      (tester) async {
+    await setupTwoWorkspaces(tester);
+
+    await tester.tap(find.byTooltip('收起全部工作区'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('任务甲'), findsNothing);
+    expect(find.text('任务乙'), findsNothing);
+    expect(
+      find.descendant(
+          of: cardOf('alpha'), matching: find.byIcon(Icons.keyboard_arrow_down)),
+      findsOneWidget,
+    );
+
+    // Tapping the (collapsed) active workspace expands just that one.
+    await tester.tap(find.text('alpha'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('任务甲'), findsOneWidget);
+  });
+
+  testWidgets('desktop sidebar folders share the same toggle', (tester) async {
+    useDesktop(tester);
+    final (store, device) = await setupDevice();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final session = FakeDeviceSession(
+      deviceId: device.id,
+      params: device.params!,
+      entries: [
+        {
+          'sessionId': 's1',
+          'title': '侧栏任务',
+          'phase': 'completedSuccess',
+          'lastActivityAt': now,
+        },
+      ],
+      workspaces: [
+        {'workspacePath': '/repo/alpha', 'workspaceIdentity': 'alpha'},
+      ],
+    );
+    await tester.pumpWidget(wrap(TaskListPage(
+      store: store,
+      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      device: device,
+      sessionOverride: session,
+    )));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('侧栏任务'), findsOneWidget);
+
+    await tester.tap(find.text('alpha'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('侧栏任务'), findsNothing);
+
+    await tester.tap(find.text('alpha'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('侧栏任务'), findsOneWidget);
+  });
+
+  testWidgets('整理任务 panel: timeline grouping and created-time sorting',
+      (tester) async {
+    await setupTwoWorkspaces(tester);
+
+    await tester.tap(find.byTooltip('整理任务'));
+    await tester.pumpAndSettle();
+    expect(find.text('按工作区'), findsOneWidget);
+    expect(find.text('按时间线'), findsOneWidget);
+    expect(find.text('创建时间'), findsOneWidget);
+    expect(find.text('更新时间'), findsOneWidget);
+
+    await tester.tap(find.text('按时间线'));
+    await tester.pumpAndSettle();
+    // Timeline buckets appear with the workspace name in each row.
+    expect(find.text('今天'), findsOneWidget);
+    expect(find.text('alpha · 刚刚'), findsWidgets);
+
+    // Sort by created time: 任务乙 (newer createdAt) now comes first.
+    await tester.tap(find.text('创建时间'));
+    await tester.pumpAndSettle();
+    final order = tester
+        .widgetList<Text>(find.byWidgetPredicate((w) =>
+            w is Text &&
+            (w.data == '任务甲' || w.data == '任务乙')))
+        .map((t) => t.data)
+        .toList();
+    expect(order, ['任务乙', '任务甲']);
+  });
 }
