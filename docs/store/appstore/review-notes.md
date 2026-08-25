@@ -2,18 +2,18 @@
 
 ## 1. Screen recording
 
-See attached `zlinker-review-demo.mp4` (or link below). Recorded on a physical
-device running the latest OS, starting from app launch:
+Two recordings are attached:
 
-- Launch ZLinker → device list with connected desktop
-- Tap device → native task list (pinned group, running/completed/queued states)
-- Tap task → full Conversation V4 (streaming markdown reply, thinking strip,
-  tool-call diff summary, file-change bar)
-- Send a message → live streaming response
+- `docs/demo/zlinker-add-device.mp4` — scripted walkthrough of the onboarding
+  flow: empty device list → tap "Add device" → paste pairing URL → confirm →
+  device appears in the list → settings page (theme / language / notifications).
+- `docs/store/appstore/zlinker-review-demo.mp4` — device list with connected
+  desktops → native task list (pinned group, running/completed/queued states) →
+  full conversation (streaming markdown reply, file-change summary).
 
 No account registration / login / paid content / user-generated content /
 sensitive-permission prompts are present in the app, so those flows do not
-appear in the recording.
+appear in the recordings.
 
 ## 2. Tested devices and OS versions
 
