@@ -16,6 +16,12 @@ tool/record_demo.sh
 # -> docs/demo/zlinker-add-device.mp4
 ```
 
+On Windows (PowerShell):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tool/record_demo.ps1
+```
+
 Options (env vars):
 
 | Var | Default | Meaning |
@@ -25,8 +31,8 @@ Options (env vars):
 | `DEMO_NO_CAPTIONS` | _(unset)_ | Set to `1` to hide the caption pills |
 | `DEMO_KEEP_WEBM` | _(unset)_ | Keep the intermediate `.webm` |
 
-Requirements: `flutter`, `node`, `python3`, `ffmpeg`. Puppeteer is installed
-into `tool/node_modules` automatically on first run.
+Requirements: `flutter`, `node`, `python` (`python3` on Linux/macOS), `ffmpeg`.
+Puppeteer is installed into `tool/node_modules` automatically on first run.
 
 ## How it works
 
