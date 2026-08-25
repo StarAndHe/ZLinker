@@ -57,7 +57,7 @@ const STEPS = [
   // taps the new device card and shows the live task list.
   ...(ENTER_LIST
       ? [
-          { kind: 'tap', x: 215, y: 210, zoom: 1.15, hold: 5200, caption: '进入任务列表' },
+          { kind: 'tapCard', zoom: 1.15, hold: 5200, caption: '进入任务列表' },
           { kind: 'pause', ms: 3000, caption: '实时任务 · 状态 · 预览' },
         ]
       : [
@@ -168,6 +168,65 @@ async function run() {
       await page.evaluate(() => window.__demo.press());
       await page.evaluate((x, y) => window.__demo.ripple(x, y), s.x, s.y);
       await page.mouse.click(s.x, s.y);
+      await wait(140);
+      await page.evaluate(() => window.__demo.release());
+      await wait(s.hold ?? 550);
+      if (s.zoom) { await page.evaluate(() => window.__demo.reset()); await wait(400); }
+    }
+
+    if (s.kind === 'tapCard') {
+      // Card layout shifts with connection state/badges — find the first
+      // device card on screen instead of hard-coding coordinates: snapshot
+      // the Flutter canvas and locate the bright rounded surface band.
+      const pt = await page.evaluate(() => {
+        // Newer Flutter hosts the canvas inside flt-glass-pane's shadow DOM.
+        const cv = (document.querySelector('flt-glass-pane')?.shadowRoot)
+          ?.querySelector('canvas')
+          || document.querySelector('flutter-view canvas');
+        if (!cv) return null;
+        const dpr = window.devicePixelRatio || 1;
+        const snap = document.createElement('canvas');
+        snap.width = cv.width; snap.height = cv.height;
+        const ctx = snap.getContext('2d');
+        ctx.drawImage(cv, 0, 0);
+        let data;
+        try { data = ctx.getImageData(0, 0, snap.width, snap.height).data; }
+        catch { return null; }
+        const W = snap.width, H = snap.height;
+        const lum = (x, y) => { const i = (y * W + x) * 4; return (data[i] + data[i + 1] + data[i + 2]) / 3; };
+        const x0 = Math.floor(W * 0.08), x1 = Math.floor(W * 0.92);
+        const rows = [];
+        // Start at 6% height: below the app bar, above the FAB; the first
+        // device card is the first bright band from the top.
+        for (let y = Math.floor(H * 0.06); y < Math.floor(H * 0.75); y += 4) {
+          let sum = 0, n = 0;
+          for (let x = x0; x < x1; x += 8) { sum += lum(x, y); n++; }
+          rows.push({ y, m: sum / n });
+        }
+        const meds = rows.map(r => r.m).sort((a, b) => a - b);
+        const med = meds[Math.floor(meds.length / 2)];
+        let band = null;
+        for (let i = 0; i < rows.length; i++) {
+          if (rows[i].m > med + 4) {
+            let j = i;
+            while (j < rows.length && rows[j].m > med + 4) j++;
+            if (j - i >= 10) { band = [rows[i].y, rows[j - 1].y]; break; }
+            i = j;
+          }
+        }
+        if (!band) return null;
+        let cy = (band[0] + band[1]) / 2 / dpr;
+        cy = Math.max(80, Math.min(560, cy));
+        return { x: window.innerWidth / 2, y: cy, band };
+      });
+      const x = pt ? pt.x : 215, y = pt ? pt.y : 122;
+      console.log('tapCard detected:', JSON.stringify(pt), '-> tapping', x, y);
+      await page.evaluate((x, y) => window.__demo.moveTo(x, y), x, y);
+      await wait(660);
+      if (s.zoom) { await page.evaluate((x, y, z) => window.__demo.zoom(x, y, z), x, y, s.zoom); await wait(380); }
+      await page.evaluate(() => window.__demo.press());
+      await page.evaluate((x, y) => window.__demo.ripple(x, y), x, y);
+      await page.mouse.click(x, y);
       await wait(140);
       await page.evaluate(() => window.__demo.release());
       await wait(s.hold ?? 550);
