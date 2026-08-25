@@ -31,6 +31,11 @@ Options (env vars):
 | `DEMO_NO_CAPTIONS` | _(unset)_ | Set to `1` to hide the caption pills |
 | `DEMO_KEEP_WEBM` | _(unset)_ | Keep the intermediate `.webm` |
 | `DEMO_PROXY` | _(unset)_ | Chromium `--proxy-server` (e.g. `http://127.0.0.1:10808`) when gstatic fonts/canvaskit are unreachable directly |
+| `DEMO_PAIR_URL` | _(fake URL)_ | Real pairing URL to type and then open its task list. **Never commit this value**, output to a gitignored path (`build/demo/`), and remember the URL is legible in the recorded frames — don't publish that video. |
+
+With `DEMO_PAIR_URL` set the script's final act changes: instead of the
+settings page, it taps the newly added device card and lingers on the live
+task list (relay handshake + snapshot).
 
 The web build uses `--no-web-resources-cdn` so canvaskit ships locally; on
 networks where Google-hosted fonts still fail (TLS interception etc.), set

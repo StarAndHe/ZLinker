@@ -32,8 +32,14 @@ const OUT = path.resolve(ROOT, process.env.DEMO_OUT || 'build/demo/zlinker-add-d
 
 // Phone viewport that matches the app's mobile layout and the store screenshots.
 const VW = 430, VH = 932, DSR = 2;
-const DEMO_URL_VALUE =
+// Pairing URL typed into the dialog. Default is a harmless fake; pass a REAL
+// link via DEMO_PAIR_URL for live-device recordings — never commit that URL,
+// and remember it stays legible in the video frames.
+const DEMO_URL_VALUE = process.env.DEMO_PAIR_URL ||
   'https://zcode.z.ai/remote/v4?sid=demo123&hash=abc&t=1&mid=m1&name=DemoDevice';
+// After the device appears, tap its card to open the task list (real
+// recordings need a few seconds for the relay handshake + snapshot).
+const ENTER_LIST = !!process.env.DEMO_PAIR_URL;
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -47,8 +53,17 @@ const STEPS = [
   { kind: 'type', text: DEMO_URL_VALUE, zoomAt: [215, 462], zoom: 1.5, caption: '粘贴远程控制链接' },
   { kind: 'tap', x: 336, y: 540, zoom: 1.4, hold: 1600, caption: '确认添加' },
   { kind: 'pause', ms: 1200, caption: '设备已出现在列表' },
-  { kind: 'tap', x: 370, y: 28, zoom: 1.3, hold: 1400, caption: '打开设置页' },
-  { kind: 'pause', ms: 1600, caption: '设置:主题 · 语言 · 通知' },
+  // Fake-URL demo continues into the settings page; a real pairing URL instead
+  // taps the new device card and shows the live task list.
+  ...(ENTER_LIST
+      ? [
+          { kind: 'tap', x: 215, y: 210, zoom: 1.15, hold: 5200, caption: '进入任务列表' },
+          { kind: 'pause', ms: 3000, caption: '实时任务 · 状态 · 预览' },
+        ]
+      : [
+          { kind: 'tap', x: 370, y: 28, zoom: 1.3, hold: 1400, caption: '打开设置页' },
+          { kind: 'pause', ms: 1600, caption: '设置:主题 · 语言 · 通知' },
+        ]),
 ];
 
 const SHOW_CAPTIONS = process.env.DEMO_NO_CAPTIONS ? false : true;
@@ -170,6 +185,8 @@ async function run() {
 
   await setCap('');
   await wait(700);
+  // Final full-res still (handy to verify the end state without scrubbing).
+  await page.screenshot({ path: webm.replace(/\.webm$/i, '') + '-final.png' });
   await recorder.stop();
   await browser.close();
   console.log('Saved', webm);
