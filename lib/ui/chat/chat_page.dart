@@ -32,6 +32,10 @@ class ChatPage extends StatefulWidget {
   /// second header row).
   final String? workspaceLabel;
 
+  /// Pinned state of the opened task (from the list entry) so the 更多 menu
+  /// can show 置顶任务 / 取消置顶任务 like the web and toggle it.
+  final bool initialPinned;
+
   const ChatPage({
     super.key,
     required this.gateway,
@@ -41,6 +45,7 @@ class ChatPage extends StatefulWidget {
     this.embedded = false,
     this.initialComposerText,
     this.workspaceLabel,
+    this.initialPinned = false,
   });
 
   @override
@@ -79,12 +84,16 @@ class _ChatPageState extends State<ChatPage> {
   /// opening the chat lands at the bottom; the user scrolling up unpins it.
   bool _stickToBottom = true;
 
+  /// Mirrors [ChatPage.initialPinned]; flips when the 更多 pin toggle runs.
+  bool _pinned = false;
+
   ConversationState? get _state => _handle?.state;
 
   @override
   void initState() {
     super.initState();
     _sessionId = widget.sessionId;
+    _pinned = widget.initialPinned;
     final initial = widget.initialComposerText;
     if (initial != null && initial.isNotEmpty) {
       _inputController.text = initial;
@@ -655,8 +664,10 @@ class _ChatPageState extends State<ChatPage> {
         _renameSession();
       case 'pin':
         if (sessionId != null) {
+          final target = !_pinned;
           _run(tr(context, 'tasks.opFailed'),
-              () => widget.gateway.setTaskPinned(sessionId, true));
+              () => widget.gateway.setTaskPinned(sessionId, target));
+          setState(() => _pinned = target);
         }
       case 'archive':
         if (sessionId != null) {
@@ -686,18 +697,21 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  /// Official web order: pin toggle / rename / archive / unread, then the
+  /// copy actions; client-only extras (link, compact, usage, plans) trail.
   List<PopupMenuEntry<String>> _moreMenuItems(BuildContext context) => [
+        _menuItem('pin', Icons.push_pin_outlined,
+            _pinned ? 'chat.more.unpin' : 'chat.more.pin'),
         _menuItem('rename', Icons.edit_outlined, 'chat.more.rename'),
-        _menuItem('copyId', Icons.tag, 'chat.more.copyId'),
-        _menuItem('copyLink', Icons.link, 'chat.more.copyLink'),
-        const PopupMenuDivider(),
-        _menuItem('pin', Icons.push_pin_outlined, 'chat.more.pin'),
         _menuItem('archive', Icons.archive_outlined, 'chat.more.archive'),
         _menuItem(
             'unread', Icons.mark_email_unread_outlined, 'chat.more.unread'),
         const PopupMenuDivider(),
         _menuItem(
             'copyPath', Icons.folder_copy_outlined, 'chat.more.copyPath'),
+        _menuItem('copyId', Icons.tag, 'chat.more.copyId'),
+        const PopupMenuDivider(),
+        _menuItem('copyLink', Icons.link, 'chat.more.copyLink'),
         _menuItem('compact', Icons.compress, 'chat.more.compact'),
         _menuItem('usage', Icons.query_stats_outlined, 'chat.more.usage'),
         _menuItem('plans', Icons.checklist_outlined, 'chat.more.plans'),
@@ -970,6 +984,7 @@ class _ChatPageState extends State<ChatPage> {
               _InputBar(
                 controller: _inputController,
                 sending: _sending,
+                hasAttachments: _pendingFiles.isNotEmpty,
                 isDraft: _sessionId == null,
                 state: state,
                 prep: _prep,
@@ -3551,26 +3566,42 @@ class _ModelModeSheet extends StatelessWidget {
                   },
                 )
             else
-              Wrap(
-                spacing: 8,
-                children: [
-                  for (final m in const ['build', 'edit', 'plan', 'yolo'])
-                    ChoiceChip(
-                      label: Text(tr(context, 'chat.mode.$m')),
-                      selected: currentModeValue == m,
-                      onSelected: (_) {
-                        if (_isDraft) {
-                          onDraftChange?.call('mode', m);
-                        } else {
-                          _apply(
-                            context,
-                            () => gateway.switchCollaborationMode(sid, m),
-                          );
-                        }
-                      },
-                    ),
-                ],
-              ),
+              for (final m in const ['build', 'edit', 'plan', 'yolo'])
+                ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    currentModeValue == m
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
+                    size: 18,
+                    color: currentModeValue == m
+                        ? ZColors.sky500
+                        : ZInk.ghost(context),
+                  ),
+                  title: Text(tr(context, 'chat.mode.$m'),
+                      style:
+                          TextStyle(fontSize: 13, color: ZInk.solid(context))),
+                  subtitle: Text(tr(context, 'chat.mode.$m.desc'),
+                      style: TextStyle(
+                          fontSize: 11, color: ZInk.faint(context))),
+                  onTap: () {
+                    if (_isDraft) {
+                      onDraftChange?.call('mode', m);
+                    } else {
+                      _apply(
+                        context,
+                        () => gateway.switchCollaborationMode(sid, m),
+                        onAccepted: () => state?.optimisticPatch({
+                          'config': {
+                            ...?state!.config,
+                            'mode': m,
+                          },
+                        }),
+                      );
+                    }
+                  },
+                ),
             if (!_isDraft) ...[
               const SizedBox(height: 16),
               Text(tr(context, 'chat.sheet.followup'),
@@ -3951,9 +3982,17 @@ class _SkillsPickerSheet extends StatelessWidget {
 /// Official composer: rounded container with the text field on top and a
 /// control row underneath — left: add-context / mode chip; right: usage
 /// ring, model chip, thought chip, send/stop button.
-class _InputBar extends StatelessWidget {
+///
+/// Stateful: listens to the text controller so the send button's
+/// empty-input disabled state (official web) updates on every keystroke
+/// without rebuilding the whole page.
+class _InputBar extends StatefulWidget {
   final TextEditingController controller;
   final bool sending;
+
+  /// Pending attachments count as input for the send button's enabled
+  /// state (text is tracked internally via the controller).
+  final bool hasAttachments;
   final bool isDraft;
   final ConversationState? state;
   final WorkspacePrep? prep;
@@ -3969,6 +4008,7 @@ class _InputBar extends StatelessWidget {
   const _InputBar({
     required this.controller,
     required this.sending,
+    required this.hasAttachments,
     required this.isDraft,
     required this.state,
     required this.prep,
@@ -3981,6 +4021,45 @@ class _InputBar extends StatelessWidget {
     required this.onModelSheet,
     required this.onUsage,
   });
+
+  @override
+  State<_InputBar> createState() => _InputBarState();
+}
+
+class _InputBarState extends State<_InputBar> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onText);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onText);
+    super.dispose();
+  }
+
+  void _onText() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _hasInput =>
+      widget.controller.text.trim().isNotEmpty || widget.hasAttachments;
+
+  // Field forwarders so the build/helpers below read like the original
+  // stateless widget.
+  TextEditingController get controller => widget.controller;
+  bool get sending => widget.sending;
+  bool get isDraft => widget.isDraft;
+  ConversationState? get state => widget.state;
+  WorkspacePrep? get prep => widget.prep;
+  Map<String, String>? get draftConfig => widget.draftConfig;
+  ChatGateway get gateway => widget.gateway;
+  String? get sessionId => widget.sessionId;
+  VoidCallback get onSend => widget.onSend;
+  VoidCallback get onAttach => widget.onAttach;
+  VoidCallback get onModelSheet => widget.onModelSheet;
+  VoidCallback get onUsage => widget.onUsage;
 
   String get _modeValue =>
       isDraft ? (draftConfig?['mode'] ?? 'build') : (state?.currentMode ?? 'build');
@@ -4115,7 +4194,8 @@ class _InputBar extends StatelessWidget {
                   running
                       ? _StopButton(onStop: () => _stop(context))
                       : _SendButton(
-                          enabled: !sending,
+                          enabled: _hasInput && !sending,
+                          sending: sending,
                           onSend: onSend,
                         ),
                 ],
@@ -4144,6 +4224,8 @@ class _InputBar extends StatelessWidget {
                     dense: true,
                     value: m,
                     title: Text(tr(context, 'chat.mode.$m')),
+                    subtitle:
+                        Text(tr(context, 'chat.mode.$m.desc')),
                   ),
               ],
             ),
@@ -4326,28 +4408,31 @@ class _RingPainter extends CustomPainter {
 
 class _SendButton extends StatelessWidget {
   final bool enabled;
+  final bool sending;
   final VoidCallback onSend;
 
-  const _SendButton({required this.enabled, required this.onSend});
+  const _SendButton(
+      {required this.enabled, required this.sending, required this.onSend});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
-        color: ZColors.sky500,
+      decoration: BoxDecoration(
+        color: enabled ? ZColors.sky500 : ZColors.sky500.withValues(alpha: 0.4),
         shape: BoxShape.circle,
       ),
       child: IconButton(
         onPressed: enabled ? onSend : null,
-        icon: enabled
-            ? const Icon(Icons.arrow_upward,
-                color: Colors.white, size: 18)
-            : const SizedBox(
+        icon: sending
+            ? const SizedBox(
                 width: 16,
                 height: 16,
                 child: CircularProgressIndicator(
                     strokeWidth: 2, color: Colors.white),
-              ),
+              )
+            : Icon(Icons.arrow_upward,
+                size: 18,
+                color: enabled ? Colors.white : Colors.white.withValues(alpha: 0.7)),
       ),
     );
   }

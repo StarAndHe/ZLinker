@@ -883,6 +883,15 @@ class DeviceSessionHub extends ChangeNotifier {
   /// All live native sessions (notification hub observes these).
   Iterable<DeviceSession> get activeSessions => _sessions.values;
 
+  /// Test seam: place a pre-built session (FakeDeviceSession) into the hub
+  /// with the same wiring [ensure] uses, without connecting anything.
+  @visibleForTesting
+  void installForTesting(DeviceSession session) {
+    _sessions[session.deviceId] = session;
+    session.addListener(_onSessionChanged);
+    _onSessionChanged();
+  }
+
   /// Ensures [device] has a (re)connecting native session. Returns null
   /// for devices whose URL cannot be parsed (no protocol layer possible).
   DeviceSession? ensure(Device device) {

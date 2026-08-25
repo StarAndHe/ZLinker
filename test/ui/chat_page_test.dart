@@ -533,4 +533,81 @@ void main() {
         findsNothing);
     expect(tester.getSize(bubbleText).height, greaterThan(14 * 21.0));
   });
+
+  testWidgets('send button disabled while the composer is empty', (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    final gateway = FakeChatGateway();
+    await tester.pumpWidget(
+        wrap(ChatPage(gateway: gateway, sessionId: 's1', title: 't')));
+    gateway.feedSnapshot([
+      {'rowId': 1, 'kind': 'userInput', 'text': 'hi', 'state': 'done'},
+    ]);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    IconButton buttonOf() => tester.widget<IconButton>(
+        find.ancestor(
+            of: find.byIcon(Icons.arrow_upward),
+            matching: find.byType(IconButton)).first);
+    expect(buttonOf().onPressed, isNull); // empty input → disabled
+
+    await tester.enterText(find.byType(TextField), '继续');
+    await tester.pump();
+    expect(buttonOf().onPressed, isNotNull);
+  });
+
+  testWidgets('更多 menu: official order and pin toggle flips label',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    final gateway = FakeChatGateway();
+    await tester.pumpWidget(wrap(
+        ChatPage(gateway: gateway, sessionId: 's1', title: 't')));
+    gateway.feedSnapshot([
+      {'rowId': 1, 'kind': 'userInput', 'text': 'hi', 'state': 'done'},
+    ]);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+
+    // Official web order: pin first, then rename / archive / unread,
+    // then the copy actions.
+    String itemText(PopupMenuItem<String> i) {
+      final w = i.child;
+      if (w is Text) return w.data ?? '';
+      if (w is Row) {
+        for (final c in w.children) {
+          if (c is Text) return c.data ?? '';
+        }
+      }
+      return '';
+    }
+
+    final texts = tester
+        .widgetList<PopupMenuItem<String>>(find.byType(PopupMenuItem<String>))
+        .map(itemText)
+        .toList();
+    expect(texts.first, '置顶任务');
+    expect(texts.indexOf('重命名任务'), lessThan(texts.indexOf('归档任务')));
+    expect(texts.indexOf('归档任务'), lessThan(texts.indexOf('标记为未读')));
+    expect(texts.indexOf('复制路径'), lessThan(texts.indexOf('复制会话 ID')));
+
+    await tester.tap(find.text('置顶任务'));
+    await tester.pumpAndSettle();
+    final pin = gateway.calls
+        .where((c) => c.$1 == 'setTaskPinned')
+        .toList()
+        .single;
+    expect(pin.$2, ['s1', true]);
+
+    // The label flips to the unpinned wording after toggling.
+    await tester.tap(find.byTooltip('更多'));
+    await tester.pumpAndSettle();
+    expect(find.text('取消置顶任务'), findsOneWidget);
+  });
 }

@@ -798,7 +798,7 @@ class AutomationSheetState extends State<AutomationSheet> {
               child: Text(tr(context, 'auto.mode.default')),
             ),
             for (final m in const ['build', 'plan', 'yolo'])
-              DropdownMenuItem(value: m, child: Text(m)),
+              DropdownMenuItem(value: m, child: Text(tr(context, 'chat.mode.$m'))),
           ],
           onChanged: (v) => setState(() => _mode = v),
         ),

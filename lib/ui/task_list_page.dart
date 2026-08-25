@@ -73,6 +73,7 @@ class _TaskListPageState extends State<TaskListPage> {
   String? _paneSessionId;
   String? _paneTitle;
   String? _paneInitialComposerText;
+  bool _panePinned = false;
 
   /// Official breakpoint: Tailwind md — single column below, dual ≥768.
   static const double kDualPaneBreakpoint = 768;
@@ -450,7 +451,10 @@ class _TaskListPageState extends State<TaskListPage> {
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           borderRadius: BorderRadius.circular(8),
-          onTap: () => _openChat(sessionId: entry.sessionId, title: title),
+          onTap: () => _openChat(
+            sessionId: entry.sessionId,
+            title: title,
+            pinned: entry.raw['pinned'] == true),
           onLongPress: () {
             final s = _session;
             if (s != null) _taskActions(context, s, entry);
@@ -502,6 +506,7 @@ class _TaskListPageState extends State<TaskListPage> {
       theme: widget.theme,
       embedded: true,
       initialComposerText: _paneInitialComposerText,
+      initialPinned: _panePinned,
       workspaceLabel: session.activeWorkspace != null
           ? workspaceTitle(session.activeWorkspace!)
           : null,
@@ -870,7 +875,10 @@ class _TaskListPageState extends State<TaskListPage> {
         side: BorderSide(color: ZInk.hairline(context)),
       ),
       child: InkWell(
-        onTap: () => _openChat(sessionId: entry.sessionId, title: title),
+        onTap: () => _openChat(
+            sessionId: entry.sessionId,
+            title: title,
+            pinned: entry.raw['pinned'] == true),
         onLongPress: () {
           final s = _session;
           if (s != null) _taskActions(context, s, entry);
@@ -1165,6 +1173,7 @@ class _TaskListPageState extends State<TaskListPage> {
           onTap: () => _openChat(
             sessionId: entry.sessionId,
             title: title,
+            pinned: entry.raw['pinned'] == true,
           ),
           onLongPress: () => _taskActions(context, session, entry),
           child: ConstrainedBox(
@@ -1256,6 +1265,7 @@ class _TaskListPageState extends State<TaskListPage> {
     String? sessionId,
     required String title,
     String? initialComposerText,
+    bool pinned = false,
   }) async {
     final session = _session;
     if (session == null || session.status == DeviceStatus.disconnected) {
@@ -1269,6 +1279,7 @@ class _TaskListPageState extends State<TaskListPage> {
         _paneSessionId = sessionId;
         _paneTitle = title;
         _paneInitialComposerText = initialComposerText;
+        _panePinned = pinned;
       });
       return;
     }
@@ -1279,6 +1290,7 @@ class _TaskListPageState extends State<TaskListPage> {
         title: title,
         theme: widget.theme,
         initialComposerText: initialComposerText,
+        initialPinned: pinned,
         workspaceLabel: session.activeWorkspace != null
             ? workspaceTitle(session.activeWorkspace!)
             : null,
