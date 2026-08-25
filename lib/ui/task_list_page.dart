@@ -61,6 +61,10 @@ class _TaskListPageState extends State<TaskListPage> {
   String _groupBy = 'workspace';
   String _sortBy = 'updated';
 
+  /// Desktop sidebar 归档 filter: shows only archived task rows (the web
+  /// sidebar carries the same entry; empty when nothing is archived).
+  bool _showArchived = false;
+
   @override
   void initState() {
     super.initState();
@@ -310,6 +314,21 @@ class _TaskListPageState extends State<TaskListPage> {
                     visualDensity: VisualDensity.compact,
                     onPressed: () => _showTidyPanel(context),
                   ),
+                  IconButton(
+                    tooltip: tr(context, 'tasks.sidebar.archive'),
+                    icon: Icon(
+                      _showArchived
+                          ? Icons.inventory_2_outlined
+                          : Icons.inventory_outlined,
+                      size: 16,
+                    ),
+                    color: _showArchived
+                        ? ZColors.sky500
+                        : ZInk.muted(context),
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () =>
+                        setState(() => _showArchived = !_showArchived),
+                  ),
                 ],
               ),
             ),
@@ -385,11 +404,19 @@ class _TaskListPageState extends State<TaskListPage> {
       BuildContext context, DeviceSession session, Map<String, dynamic> ws) {
     final isActive = _isWorkspaceActive(session, ws);
     final key = workspaceKeyOf(ws) ?? workspaceTitle(ws);
-    final expanded =
-        _isWorkspaceExpanded(key, isActive: isActive);
+    final expanded = _isWorkspaceExpanded(key, isActive: isActive);
     final sessions = isActive ? session.sessions : null;
-    final entries =
+    final allEntries =
         sessions?.ready == true ? sessions!.list : const <SessionEntry>[];
+    final entries = _showArchived
+        ? [
+            for (final e in allEntries)
+              if (e.raw['archived'] == true) e
+          ]
+        : [
+            for (final e in allEntries)
+              if (e.raw['archived'] != true) e
+          ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -429,10 +456,18 @@ class _TaskListPageState extends State<TaskListPage> {
             ),
           ),
         ),
-        if (expanded && isActive)
+        if (expanded && isActive) ...[
           for (final e in entries)
             _desktopTaskRow(context, e,
                 selected: e.sessionId == _paneSessionId, indent: true),
+          if (_showArchived && entries.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 2, 8, 6),
+              child: Text(tr(context, 'tasks.archive.empty'),
+                  style:
+                      TextStyle(fontSize: 12, color: ZInk.ghost(context))),
+            ),
+        ],
       ],
     );
   }
@@ -649,28 +684,33 @@ class _TaskListPageState extends State<TaskListPage> {
       builder: (context, _) {
         final session = _session;
         final banner = _ConnectionBanner(session: session, onWeb: _openRemote);
+        // Lazy rows (official list virtualizes): widgets are cheap config
+        // objects, ListView.builder only inflates what's near the viewport,
+        // so collapse toggles never rebuild the whole list's elements.
+        final rows = <Widget>[
+          banner,
+          const SizedBox(height: 12),
+          _headerRow(context, session),
+          const SizedBox(height: 12),
+          if (session != null) ..._pinnedGroup(context, session),
+          if (session == null || session.workspaces.isEmpty)
+            _fallback(context, session)
+          else if (_groupBy == 'timeline')
+            ..._timelineGroups(context, session)
+          else
+            for (final ws in session.workspaces)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _workspaceCard(context, session, ws),
+              ),
+        ];
         return RefreshIndicator(
           onRefresh: () async =>
               session?.reloadTasks() ?? widget.hub.ensure(widget.device),
-          child: ListView(
+          child: ListView.builder(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 32),
-            children: [
-              banner,
-              const SizedBox(height: 12),
-              _headerRow(context, session),
-              const SizedBox(height: 12),
-              if (session != null) ..._pinnedGroup(context, session),
-              if (session == null || session.workspaces.isEmpty)
-                _fallback(context, session)
-              else if (_groupBy == 'timeline')
-                ..._timelineGroups(context, session)
-              else
-                for (final ws in session.workspaces)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _workspaceCard(context, session, ws),
-                  ),
-            ],
+            itemCount: rows.length,
+            itemBuilder: (context, i) => rows[i],
           ),
         );
       },
