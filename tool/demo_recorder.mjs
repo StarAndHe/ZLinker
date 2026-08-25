@@ -119,15 +119,19 @@ async function run() {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   const webm = OUT.replace(/\.mp4$/i, '') + '.webm';
 
+  // Optional HTTP proxy for Chromium (e.g. DEMO_PROXY=http://127.0.0.1:10808)
+  // when gstatic fonts/canvaskit are unreachable directly.
+  const proxyArgs = process.env.DEMO_PROXY
+    ? ['--proxy-server=' + process.env.DEMO_PROXY] : [];
   const browser = await puppeteer.launch({
     headless: 'new',
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
-      '--force-device-scale-factor=' + DSR, '--hide-scrollbars'],
+      '--force-device-scale-factor=' + DSR, '--hide-scrollbars', ...proxyArgs],
   });
   const page = await browser.newPage();
   await page.setViewport({ width: VW, height: VH, deviceScaleFactor: DSR });
   console.log('Loading', URL);
-  await page.goto(URL, { waitUntil: 'networkidle0', timeout: 120000 });
+  await page.goto(URL, { waitUntil: 'load', timeout: 120000 });
   await wait(6000); // let Flutter paint the empty state
   await page.evaluate(overlayInit);
   await wait(300);

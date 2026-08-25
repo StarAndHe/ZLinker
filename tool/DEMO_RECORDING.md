@@ -30,6 +30,11 @@ Options (env vars):
 | `DEMO_PORT` | `8890` | Local static-server port |
 | `DEMO_NO_CAPTIONS` | _(unset)_ | Set to `1` to hide the caption pills |
 | `DEMO_KEEP_WEBM` | _(unset)_ | Keep the intermediate `.webm` |
+| `DEMO_PROXY` | _(unset)_ | Chromium `--proxy-server` (e.g. `http://127.0.0.1:10808`) when gstatic fonts/canvaskit are unreachable directly |
+
+The web build uses `--no-web-resources-cdn` so canvaskit ships locally; on
+networks where Google-hosted fonts still fail (TLS interception etc.), set
+`DEMO_PROXY` to route them through a local proxy.
 
 Requirements: `flutter`, `node`, `python` (`python3` on Linux/macOS), `ffmpeg`.
 Puppeteer is installed into `tool/node_modules` automatically on first run.
