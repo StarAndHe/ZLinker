@@ -99,9 +99,13 @@ void main() {
     )));
     await tester.pumpAndSettle();
 
+    // 设置 tab shows the active queue.
     expect(find.text('CI 报告'), findsOneWidget);
     expect(find.text('排队第 2 位'), findsOneWidget); // 排队位置徽标
     expect(find.text('等待闲时算力'), findsOneWidget);
+    // 历史 tab holds the terminal runs.
+    await tester.tap(find.text('历史'));
+    await tester.pumpAndSettle();
     expect(find.text('文档检查'), findsOneWidget);
     expect(find.text('已完成'), findsOneWidget);
     expect(find.text('打开会话'), findsOneWidget);
@@ -223,6 +227,159 @@ void main() {
     // Sheet stays open for correction / cancel (FAB + sheet title both say
     // 新建闲时任务).
     expect(find.text('新建闲时任务'), findsNWidgets(2));
+  });
+
+  testWidgets('paused runs show the #{position} badge', (tester) async {
+    final (store, hub) = await setupDevice();
+    final host = FakeOffPeakHost(DeviceStatus.connected, tasks: [
+      {
+        'offPeakTaskId': 't1',
+        'title': '暂停任务',
+        'prompt': 'p',
+        'status': 'paused',
+        'queuePosition': 3,
+      },
+    ]);
+    await tester.pumpWidget(wrap(OffPeakPage(
+      store: store, hub: hub, device: store.devices.first, hostOverride: host,
+    )));
+    await tester.pumpAndSettle();
+
+    expect(find.text('#3 已暂停'), findsOneWidget); // official paused badge
+    expect(find.text('排队第 3 位'), findsNothing);
+  });
+
+  testWidgets('pause action shows the official queue hint',
+      (tester) async {
+    final (store, hub) = await setupDevice();
+    final host = FakeOffPeakHost(DeviceStatus.connected, tasks: [
+      {
+        'offPeakTaskId': 't1',
+        'title': '运行中',
+        'prompt': 'p',
+        'status': 'running',
+      },
+    ]);
+    await tester.pumpWidget(wrap(OffPeakPage(
+      store: store, hub: hub, device: store.devices.first, hostOverride: host,
+    )));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('暂停').last);
+    await tester.pumpAndSettle();
+
+    expect(host.calls.where((c) => c.$1 == 'pause'), hasLength(1));
+    expect(find.byType(SnackBar), findsOneWidget);
+    expect(find.text('暂停时长超过队列等待时限的任务，将会被重新放回队列。'),
+        findsOneWidget);
+  });
+
+  testWidgets('editing an existing run submits the desktop update shape',
+      (tester) async {
+    final (store, hub) = await setupDevice();
+    final host = FakeOffPeakHost(DeviceStatus.connected, tasks: [
+      {
+        'offPeakTaskId': 't9',
+        'title': '旧指令',
+        'prompt': '原始内容',
+        'status': 'queued',
+      },
+    ]);
+    await tester.pumpWidget(wrap(OffPeakPage(
+      store: store, hub: hub, device: store.devices.first, hostOverride: host,
+    )));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('编辑'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('编辑闲时任务'), findsOneWidget);
+    // Prefilled from the stored run.
+    expect(find.widgetWithText(TextField, '旧指令'), findsOneWidget);
+
+    await tester.enterText(
+        find.widgetWithText(TextField, '旧指令'), '改成的新标题');
+    await tester.ensureVisible(find.text('保存'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    final updates = host.calls.where((c) => c.$1 == 'updateTask').toList();
+    expect(updates, hasLength(1));
+    expect(updates.single.$2.single, {
+      'offPeakTaskId': 't9',
+      'title': '改成的新标题',
+      'prompt': '原始内容',
+      'permissionMode': 'build',
+      'model': null,
+      'thoughtLevel': null,
+    });
+  });
+
+  testWidgets('history tab deletes records through deleteHistory',
+      (tester) async {
+    final (store, hub) = await setupDevice();
+    final host = FakeOffPeakHost(DeviceStatus.connected, tasks: [
+      {
+        'offPeakTaskId': 't2',
+        'title': '已结束',
+        'prompt': 'p',
+        'status': 'completed',
+      },
+    ]);
+    await tester.pumpWidget(wrap(OffPeakPage(
+      store: store, hub: hub, device: store.devices.first, hostOverride: host,
+    )));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('历史'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('删除历史记录'));
+    await tester.pumpAndSettle();
+    // Confirm dialog.
+    await tester.tap(find.text('删除历史记录').last);
+    await tester.pumpAndSettle();
+
+    expect(host.calls.where((c) => c.$1 == 'deleteHistory'), hasLength(1));
+  });
+
+  testWidgets('subscriber banner shows before the first task and dismisses',
+      (tester) async {
+    final (store, hub) = await setupDevice();
+    final host = FakeOffPeakHost(DeviceStatus.connected);
+    await tester.pumpWidget(wrap(OffPeakPage(
+      store: store, hub: hub, device: store.devices.first, hostOverride: host,
+    )));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('订阅用户新功能体验'), findsOneWidget);
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('订阅用户新功能体验'), findsNothing);
+  });
+
+  testWidgets('quota exhaustion shows the reset countdown line',
+      (tester) async {
+    final (store, hub) = await setupDevice();
+    final host = FakeOffPeakHost(DeviceStatus.connected, statusInfo: {
+      'available': false,
+      'reason': 'quota',
+      'quotaResetRemainingMs':
+          90 * 60 * 1000, // reads as seconds→fallback path keeps ms here
+    });
+    await tester.pumpWidget(wrap(OffPeakPage(
+      store: store, hub: hub, device: store.devices.first, hostOverride: host,
+    )));
+    await tester.pumpAndSettle();
+
+    expect(find.text('闲时任务额度已用完，请稍后再试'), findsOneWidget);
+    expect(find.textContaining('可在1 小时 30 分钟后再次创建'), findsOneWidget);
   });
 
   testWidgets('pause and cancel route through the port',
