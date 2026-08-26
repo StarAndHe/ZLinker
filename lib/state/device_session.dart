@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 
 import '../protocol/automation.dart';
@@ -38,6 +39,65 @@ String workspaceTitle(Map<String, dynamic> w) {
   final identity = w['workspaceIdentity'] as String?;
   if (identity != null && identity.isNotEmpty) return identity;
   return workspaceKeyOf(w) ?? '?';
+}
+
+/// Health-gated workspace RPC surface behind [DeviceSession.callChannel].
+///
+/// The default implementation wraps the live bridge; tests inject a fake
+/// through [DeviceSession.debugAttachGateForTest] to drive the
+/// stall→rebuild policy without sockets.
+abstract interface class WorkspaceGate {
+  Future<void> waitHealthy({required Duration timeout});
+  Future<dynamic> call(String channel, String method, List<Object?> args);
+}
+
+class _LiveWorkspaceGate implements WorkspaceGate {
+  final BridgeSession bridge;
+  _LiveWorkspaceGate(this.bridge);
+
+  @override
+  Future<void> waitHealthy({required Duration timeout}) =>
+      bridge.waitHealthy(timeout: timeout);
+
+  @override
+  Future<dynamic> call(String channel, String method, List<Object?> args) =>
+      bridge.channels.call(channel, method, args);
+}
+
+/// Tunable durations of [DeviceSession]'s stall defenses. Production uses
+/// the default; tests shrink them to drive the policy with real short
+/// delays instead of a fake clock.
+class StallTimings {
+  /// Gate bound while a channel RPC waits on a degraded bridge; on expiry
+  /// the link counts as wedged and a full rebuild is forced (the cold-start
+  /// permanent-loading defence).
+  final Duration healthyWaitTimeout;
+
+  /// Hard cap for one channel RPC after the gate passes.
+  final Duration rpcTimeout;
+
+  /// Bound for a single relay dial (`socket.ready` has no internal timeout
+  /// and can otherwise park `connect` forever).
+  final Duration dialTimeout;
+
+  /// How long the sessions-index may stay un-ready on a connected session
+  /// before the list watchdog escalates (reopen once, then rebuild).
+  final Duration listReadyTimeout;
+
+  /// Minimum spacing between forced rebuilds so probe storms can't thrash.
+  final Duration minRebuildInterval;
+
+  /// Delay between automatic retries after a retryable connect failure.
+  final Duration retryBackoff;
+
+  const StallTimings({
+    this.healthyWaitTimeout = const Duration(seconds: 12),
+    this.rpcTimeout = const Duration(seconds: 30),
+    this.dialTimeout = const Duration(seconds: 30),
+    this.listReadyTimeout = const Duration(seconds: 20),
+    this.minRebuildInterval = const Duration(seconds: 30),
+    this.retryBackoff = const Duration(seconds: 30),
+  });
 }
 
 enum DeviceStatus { disconnected, connecting, connected, error }
@@ -205,11 +265,22 @@ class DeviceSession extends ChangeNotifier
   final String? preferredWorkspaceKey;
   final void Function(String workspaceKey)? onWorkspaceOpened;
 
+  /// Test seam: replaces the default [RemoteClient] construction in
+  /// [connect]; production keeps the real relay-backed client.
+  @visibleForTesting
+  final RemoteClient Function()? clientFactory;
+
+  /// Tunable stall-defense durations (tests shrink the defaults).
+  @visibleForTesting
+  final StallTimings timings;
+
   DeviceSession({
     required this.deviceId,
     required this.params,
     this.preferredWorkspaceKey,
     this.onWorkspaceOpened,
+    this.clientFactory,
+    this.timings = const StallTimings(),
   });
 
   RemoteClient? _client;
@@ -219,7 +290,23 @@ class DeviceSession extends ChangeNotifier
   final Map<String, ConversationSubscription> _chatSubs = {};
   StreamSubscription? _failureSub;
   Timer? _retryTimer;
+  Timer? _listWatchdog;
   int _retryAttempts = 0;
+
+  // --- Stall bookkeeping (cold-start permanent-loading defence) ---
+  /// Consecutive soft reloads (bootstrap/open) that produced no progress.
+  int _softReloadFails = 0;
+
+  /// List-watchdog escalation step: 0 idle; 1 = reopen once failed.
+  int _listEscalations = 0;
+
+  /// Wall clock of the last forced rebuild, for debouncing.
+  DateTime _lastStallRebuildAt = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _rebuilding = false;
+
+  /// Test seam overriding the live bridge gate in [callChannel].
+  WorkspaceGate? _testGate;
+
   bool _disposed = false;
   bool _connecting = false;
   bool _openingWorkspace = false;
@@ -268,14 +355,21 @@ class DeviceSession extends ChangeNotifier
     if (_disposed || _busy || _status == DeviceStatus.connected) return;
     _connecting = true;
     _retryTimer?.cancel();
+    _listWatchdog?.cancel();
     _kicked = false;
     _error = null;
     _setStatus(DeviceStatus.connecting);
-    final client = RemoteClient(params, onLog: _log);
+    final sw = Stopwatch()..start();
+    final client =
+        clientFactory != null ? clientFactory!() : RemoteClient(params, onLog: _log);
     _failureSub = client.relay.failures.listen(_onRelayFailure);
     try {
-      await client.connect();
+      // socket.ready has no internal timeout: a black-holed dial would park
+      // connect (and the whole UI) in `connecting` forever.
+      await client.connect().timeout(timings.dialTimeout);
+      sw.reset();
       await client.waitPaired(timeout: const Duration(seconds: 90));
+      _log('[session] paired in ${sw.elapsedMilliseconds}ms');
       if (_disposed) {
         await client.dispose();
         return;
@@ -283,7 +377,9 @@ class DeviceSession extends ChangeNotifier
       _client = client;
       client.relay.stateListenable.addListener(_onRelayState);
       _onRelayState();
+      sw.reset();
       final bootstrap = await client.bootstrap();
+      _log('[session] bootstrap in ${sw.elapsedMilliseconds}ms');
       final list = bootstrap['workspaces'];
       _workspaces = [
         if (list is List)
@@ -299,6 +395,9 @@ class DeviceSession extends ChangeNotifier
         await openWorkspace(_preferredWorkspace ?? _workspaces.first);
       }
       _setStatus(DeviceStatus.connected);
+      // Status must read connected before arming: the watchdog only guards
+      // the healthy-looking-but-never-ready state.
+      _armListWatchdog();
     } catch (e) {
       await _failureSub?.cancel();
       _failureSub = null;
@@ -308,6 +407,8 @@ class DeviceSession extends ChangeNotifier
       }
       await client.dispose();
       _error = '$e';
+      _log('[session] connect failed after '
+          '${sw.elapsedMilliseconds}ms: $e');
       _setStatus(DeviceStatus.error);
       _maybeScheduleRetry();
     } finally {
@@ -327,7 +428,7 @@ class DeviceSession extends ChangeNotifier
     if (!retryable || _retryAttempts >= 3) return;
     _retryAttempts += 1;
     _retryTimer?.cancel();
-    _retryTimer = Timer(const Duration(seconds: 30), () {
+    _retryTimer = Timer(timings.retryBackoff, () {
       if (!_disposed && _status == DeviceStatus.error) connect();
     });
   }
@@ -391,13 +492,42 @@ class DeviceSession extends ChangeNotifier
 
   /// Opens (or switches to) a workspace bridge and subscribes its
   /// sessions-index. Switching disposes the previous bridge first.
-  Future<void> openWorkspace(Map<String, dynamic> workspace) async {
+  ///
+  /// Concurrent calls are serialized (last wins) instead of dropped: an
+  /// open already in flight used to swallow overlapping retries silently,
+  /// which read exactly like the dead "retry" button of the loading bug.
+  Future<void> openWorkspace(Map<String, dynamic> workspace) {
+    final previous = _openChain;
+    final completer = Completer<void>();
+    _openChain = completer;
+    () async {
+      try {
+        if (previous != null) {
+          try {
+            await previous.future;
+          } catch (_) {}
+        }
+        if (_disposed) return;
+        await _openWorkspaceNow(workspace);
+      } finally {
+        if (identical(_openChain, completer)) _openChain = null;
+        completer.complete();
+      }
+    }();
+    return completer.future;
+  }
+
+  Completer<void>? _openChain;
+
+  Future<void> _openWorkspaceNow(Map<String, dynamic> workspace) async {
     final key = workspaceKeyOf(workspace);
     final client = _client;
     if (key == null || client == null || _disposed || _openingWorkspace) {
       return;
     }
     _openingWorkspace = true;
+    final sw = Stopwatch()..start();
+    _listWatchdog?.cancel();
     try {
       final bridge = await client.openBridge(key);
       if (_disposed || _client != client) {
@@ -444,16 +574,103 @@ class DeviceSession extends ChangeNotifier
       notifyListeners();
     } finally {
       _openingWorkspace = false;
+      sw.stop();
+      // Connected-but-never-ready (open failed OR subscribed with no
+      // snapshot yet) is exactly the cold-start loading bug: guard it.
+      _armListWatchdog();
     }
   }
 
   void _onSessionsChanged() {
-    if (!_disposed) notifyListeners();
+    if (_disposed) return;
+    final sub = _sessionsSub;
+    if (sub != null && sub.state.ready) {
+      // First snapshot landed — the list is alive again.
+      _listWatchdog?.cancel();
+      _listEscalations = 0;
+      _softReloadFails = 0;
+    }
+    notifyListeners();
   }
 
-  /// Task-list retry: re-runs bootstrap and re-opens the active (or
-  /// preferred / first) workspace. Falls back to a full reconnect when
-  /// the relay link itself is gone.
+  /// Arms the never-ready watchdog while the task list has no snapshot.
+  /// Disarmed instantly by [_onSessionsChanged] once frames arrive, and by
+  /// suspend/connect teardowns via the shared cancel points.
+  void _armListWatchdog() {
+    _listWatchdog?.cancel();
+    if (_disposed || status != DeviceStatus.connected) return;
+    final sub = _sessionsSub;
+    if (sub != null && sub.state.ready) return;
+    if (_activeWorkspace == null &&
+        _preferredWorkspace == null &&
+        _workspaces.isEmpty) {
+      // Desktop reports no workspaces: an empty list IS the ready state.
+      return;
+    }
+    _log('[session] list not ready; watchdog armed '
+        '(${timings.listReadyTimeout.inSeconds}s)');
+    _listWatchdog = Timer(timings.listReadyTimeout, _onListNotReady);
+  }
+
+  void _onListNotReady() {
+    if (_disposed || _kicked || status != DeviceStatus.connected) return;
+    final sub = _sessionsSub;
+    if (sub != null && sub.state.ready) return;
+    _listEscalations += 1;
+    final target =
+        _activeWorkspace ?? _preferredWorkspace ?? _workspaces.firstOrNull;
+    if (target == null) return;
+    if (_listEscalations == 1) {
+      // Soft escalation: a fresh bridge + subscribe usually recovers a
+      // snapshot lost between the subscribe ack and its delivery.
+      _log('[session] sessions-index never became ready; reopening '
+          'workspace (soft)');
+      unawaited(_reopenForWatchdog(target));
+      return;
+    }
+    final scheduled =
+        _forceRebuildAfterStall('sessions-index still not ready after reopen');
+    if (!scheduled && !_disposed && !_kicked) {
+      // Rebuild was debounced (one just ran); keep guarding until its
+      // outcome lands instead of going silent forever.
+      _listWatchdog = Timer(timings.listReadyTimeout, _onListNotReady);
+    }
+  }
+
+  Future<void> _reopenForWatchdog(Map<String, dynamic> target) async {
+    try {
+      await openWorkspace(target);
+    } finally {
+      if (!_disposed) _armListWatchdog();
+    }
+  }
+
+  /// The link wedged even though [status] may still read connected. Soft
+  /// retries would queue on the same dead bridge forever (the reported
+  /// "retry does nothing" symptom), so drop the whole stack and reconnect.
+  /// Debounced so parallel probe failures rebuild at most once per window.
+  /// Returns whether a rebuild was actually scheduled.
+  bool _forceRebuildAfterStall(String reason) {
+    if (_disposed || _kicked || _rebuilding) return false;
+    final now = clock.now();
+    if (now.difference(_lastStallRebuildAt) < timings.minRebuildInterval) return false;
+    _lastStallRebuildAt = now;
+    _rebuilding = true;
+    _log('[session] link stalled ($reason); rebuilding connection');
+    unawaited(() async {
+      await suspend();
+      _rebuilding = false;
+      if (!_disposed && !_kicked) {
+        await connect();
+      }
+    }());
+    return true;
+  }
+
+  /// Task-list retry. Soft by design (re-runs bootstrap and re-opens the
+  /// active/preferred workspace), but after repeated no-progress reloads it
+  /// escalates to a full rebuild — reloading over a wedged link is the
+  /// reported "retry does nothing" path.
   Future<void> reloadTasks() async {
     final client = _client;
     if (client == null || _disposed) {
@@ -469,6 +686,12 @@ class DeviceSession extends ChangeNotifier
             if (w is Map) w.cast<String, dynamic>(),
       ];
     } catch (e) {
+      _log('[session] reload bootstrap failed: $e');
+      _softReloadFails += 1;
+      if (_softReloadFails >= 2 &&
+          _forceRebuildAfterStall('reload kept failing: $e')) {
+        return;
+      }
       _error = '$e';
       notifyListeners();
       return;
@@ -502,14 +725,39 @@ class DeviceSession extends ChangeNotifier
   }
 
   /// Raw channel RPC over the active workspace bridge (usage-stats,
-  /// model-provider, ...). Throws when no bridge is open.
+  /// model-provider, automations, off-peak...). Throws when no bridge is
+  /// open.
+  ///
+  /// Both waits are bounded, and each timeout marks the link as stalled:
+  /// the session forces one full suspend+connect rebuild so subsequent
+  /// calls ride a fresh bridge instead of queueing on the wedged one.
   Future<dynamic> callChannel(String channel, String method,
       [List<Object?> args = const []]) async {
-    final bridge = _bridge;
-    if (bridge == null) throw StateError('not connected');
-    await bridge.waitHealthy();
-    return bridge.channels.call(channel, method, args);
+    final gate = _testGate ?? _liveGate();
+    if (gate == null) throw StateError('not connected');
+    try {
+      await gate.waitHealthy(timeout: timings.healthyWaitTimeout);
+    } on TimeoutException {
+      _forceRebuildAfterStall(
+          'workspace bridge unhealthy > ${timings.healthyWaitTimeout.inSeconds}s');
+      rethrow;
+    }
+    try {
+      return await gate.call(channel, method, args).timeout(timings.rpcTimeout);
+    } on TimeoutException {
+      _forceRebuildAfterStall('$channel.$method timed out');
+      rethrow;
+    }
   }
+
+  WorkspaceGate? _liveGate() {
+    final bridge = _bridge;
+    return bridge == null ? null : _LiveWorkspaceGate(bridge);
+  }
+
+  /// Test-only: route every channel RPC through [gate].
+  @visibleForTesting
+  void debugAttachGateForTest(WorkspaceGate gate) => _testGate = gate;
 
   /// Server-side automations of the connected desktop. Bound to the
   /// zcode-agent channel (listAllAutomations was probed there).
@@ -821,6 +1069,9 @@ class DeviceSession extends ChangeNotifier
   Future<void> suspend() async {
     if (_disposed) return;
     _retryTimer?.cancel();
+    _listWatchdog?.cancel();
+    _listEscalations = 0;
+    _softReloadFails = 0;
     _connecting = false;
     _openingWorkspace = false;
     final client = _client;
