@@ -127,6 +127,9 @@ class _OffPeakPageState extends State<OffPeakPage> {
       _toast(tr(context, 'op.unavailable.title'));
       return;
     }
+    // Desktop parity: the model options come from the availability payload's
+    // allowedModels; prepareWorkspace is the fallback when absent.
+    final allowed = _status?.raw['allowedModels'];
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -134,6 +137,9 @@ class _OffPeakPageState extends State<OffPeakPage> {
         session: session,
         loadOptions:
             session is DeviceSession ? session.prepareWorkspace : null,
+        allowedModels: allowed is List
+            ? [for (final v in allowed) if (v is String) v]
+            : null,
       ),
     );
     await _load();
@@ -367,7 +373,7 @@ class _OffPeakPageState extends State<OffPeakPage> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      // 排队位置徽标: sky 数字 + 浅色底 (official shape).
+                      // 排队位置徽标 (official: 排队第 N 位).
                       if (task.queued && task.queuePosition != null)
                         Container(
                           margin: const EdgeInsets.only(right: 8),
@@ -378,7 +384,7 @@ class _OffPeakPageState extends State<OffPeakPage> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            '#${task.queuePosition}',
+                            trP(context, 'op.queue', ['${task.queuePosition}']),
                             style: const TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,
@@ -507,15 +513,12 @@ class _OffPeakPageState extends State<OffPeakPage> {
       case 'resume':
         await _runOp(() => session.offPeak.resume(task.id));
       case 'cancel':
-        await _runOp(() => session.offPeak.cancel(task.id));
-      case 'delete':
+        // Official confirm: 已修改的文件会保留.
         final confirmed = await showDialog<bool>(
           context: context,
           builder: (c) => AlertDialog(
-            title: Text(tr(context, 'op.deleteTitle')),
-            content: Text(trP(
-                context,
-                'op.deleteBody',
+            title: Text(tr(context, 'op.cancel.title')),
+            content: Text(trP(context, 'op.cancel.body',
                 [task.title.isEmpty ? task.prompt : task.title])),
             actions: [
               TextButton(
@@ -526,7 +529,30 @@ class _OffPeakPageState extends State<OffPeakPage> {
                     backgroundColor: Theme.of(c).colorScheme.error,
                     foregroundColor: Theme.of(c).colorScheme.onError),
                 onPressed: () => Navigator.pop(c, true),
-                child: Text(tr(context, 'devices.delete.confirm')),
+                child: Text(tr(context, 'op.cancel.confirm')),
+              ),
+            ],
+          ),
+        );
+        if (confirmed == true) {
+          await _runOp(() => session.offPeak.cancel(task.id));
+        }
+      case 'delete':
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: Text(tr(context, 'op.deleteTitle')),
+            content: Text(tr(context, 'op.deleteBody')),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(c, false),
+                  child: Text(tr(context, 'devices.add.cancel'))),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(c).colorScheme.error,
+                    foregroundColor: Theme.of(c).colorScheme.onError),
+                onPressed: () => Navigator.pop(c, true),
+                child: Text(tr(context, 'op.delete.confirm')),
               ),
             ],
           ),
@@ -587,10 +613,20 @@ class _OffPeakPageState extends State<OffPeakPage> {
 class OffPeakSheet extends StatefulWidget {
   final OffPeakHost session;
 
-  /// prepareWorkspace loader (the full device session): drives the model
-  /// selector — the desktop form picks from available models, no typing.
+  /// prepareWorkspace loader (the full device session): fallback source for
+  /// the model selector options.
   final Future<WorkspacePrep> Function()? loadOptions;
-  const OffPeakSheet({super.key, required this.session, this.loadOptions});
+
+  /// Desktop off-peak availability payload's `allowedModels`: the official
+  /// option source for the model selector (plain model names, first is the
+  /// default — no unspecified choice, matching the desktop form).
+  final List<String>? allowedModels;
+  const OffPeakSheet({
+    super.key,
+    required this.session,
+    this.loadOptions,
+    this.allowedModels,
+  });
 
   @override
   State<OffPeakSheet> createState() => _OffPeakSheetState();
@@ -600,13 +636,17 @@ class _OffPeakSheetState extends State<OffPeakSheet> {
   final _title = TextEditingController();
   final _prompt = TextEditingController();
 
-  /// Selected model option value (`provider/model` composite); null =
-  /// 默认 — the device decides. Selector, not free text (desktop parity).
+  /// Selected model option value (allowedModels plain name, or the prep
+  /// composite as fallback); null = first option (desktop default).
   String? _model;
   DateTime? _earliest;
   bool _keepAwake = true;
   String _permission = 'build';
   bool _submitting = false;
+
+  /// The official one-time hint toast fires on the first non-full-access
+  /// submit (desktop behavior).
+  bool _fullAccessHintShown = false;
 
   static const _templateKeys = ['tpl.ci', 'tpl.docs', 'tpl.standup'];
 
@@ -650,6 +690,11 @@ class _OffPeakSheetState extends State<OffPeakSheet> {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(tr(context, 'op.err.noWorkspace'))));
       return;
+    }
+    if (_permission != 'yolo' && !_fullAccessHintShown) {
+      _fullAccessHintShown = true;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(tr(context, 'op.fullAccessHint'))));
     }
     setState(() => _submitting = true);
     try {
@@ -720,21 +765,28 @@ class _OffPeakSheetState extends State<OffPeakSheet> {
             const SizedBox(height: 12),
             TextField(
               controller: _title,
-              decoration: InputDecoration(labelText: tr(context, 'op.name')),
+              decoration: InputDecoration(
+                  labelText: tr(context, 'op.name'),
+                  hintText: tr(context, 'op.name.hint')),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: _prompt,
               maxLines: 3,
-              decoration:
-                  InputDecoration(labelText: tr(context, 'op.prompt')),
+              decoration: InputDecoration(
+                  labelText: tr(context, 'op.prompt'),
+                  hintText: tr(context, 'op.prompt.hint')),
             ),
             const SizedBox(height: 10),
             ModelOptionField(
               loadOptions: widget.loadOptions,
+              directValues: widget.allowedModels,
               optionId: 'model',
               labelText: tr(context, 'op.model'),
-              noneLabel: tr(context, 'op.model.default'),
+              // Desktop off-peak form: no unspecified choice — first
+              // allowed model is the default.
+              noneLabel: null,
+              defaultToFirst: true,
               value: _model,
               onChanged: (v) => setState(() => _model = v),
             ),
@@ -781,6 +833,12 @@ class _OffPeakSheetState extends State<OffPeakSheet> {
               ],
               onChanged: (v) =>
                   setState(() => _permission = v ?? _permission),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              tr(context, 'op.permissionWarning'),
+              style:
+                  TextStyle(fontSize: 11, height: 1.5, color: ZInk.faint(context)),
             ),
             const SizedBox(height: 16),
             SizedBox(

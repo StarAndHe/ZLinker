@@ -62,12 +62,12 @@ void main() {
     await tester.tap(find.text('新建闲时任务'));
     await tester.pumpAndSettle();
 
-    // Default: 默认（不指定） — the payload's model stays unspecified.
-    expect(find.text('默认（不指定）'), findsOneWidget);
-
-    await tester.tap(find.text('默认（不指定）'));
-    await tester.pumpAndSettle();
+    // Desktop parity: no unspecified choice — the field defaults to the
+    // first available model.
     expect(find.text('GLM-5.2'), findsOneWidget);
+
+    await tester.tap(find.text('GLM-5.2'));
+    await tester.pumpAndSettle();
     expect(find.text('BigModel'), findsOneWidget); // provider subtitle
     expect(find.text('Moonshot V2'), findsOneWidget);
     expect(find.text('kimi_zz'), findsOneWidget);
@@ -77,8 +77,10 @@ void main() {
     expect(find.text('Moonshot V2'), findsOneWidget); // field now shows it
 
     await tester.enterText(
-        find.widgetWithText(TextField, '指令'), '跑一次夜间分析');
-    await tester.tap(find.text('提交'));
+        find.widgetWithText(TextField, '任务指令'), '跑一次夜间分析');
+    await tester.ensureVisible(find.text('创建闲时任务'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('创建闲时任务'));
     await tester.pumpAndSettle();
 
     final submit = session.channelCalls
@@ -98,14 +100,14 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('新建自动化'));
+    await tester.tap(find.text('创建定时任务'));
     await tester.pumpAndSettle();
 
-    await tester.enterText(find.widgetWithText(TextField, '标题'), '晨报');
+    await tester.enterText(find.widgetWithText(TextField, '任务标题'), '晨报');
     await tester.enterText(
         find.widgetWithText(TextField, '指令'), '汇总昨日改动');
 
-    await tester.tap(find.text('默认（不指定）'));
+    await tester.tap(find.text('默认模型'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Moonshot V2'));
     await tester.pumpAndSettle();

@@ -100,11 +100,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('CI 报告'), findsOneWidget);
-    expect(find.text('#2'), findsOneWidget); // 排队位置徽标
-    expect(find.text('排队中'), findsOneWidget);
+    expect(find.text('排队第 2 位'), findsOneWidget); // 排队位置徽标
+    expect(find.text('等待闲时算力'), findsOneWidget);
     expect(find.text('文档检查'), findsOneWidget);
     expect(find.text('已完成'), findsOneWidget);
-    expect(find.text('查看结果'), findsOneWidget);
+    expect(find.text('打开会话'), findsOneWidget);
     expect(find.textContaining('用时 10 分钟'), findsOneWidget);
   });
 
@@ -147,7 +147,7 @@ void main() {
     )));
     await tester.pumpAndSettle();
 
-    expect(find.text('闲时任务仅 Coding Plan 订阅可用'), findsOneWidget);
+    expect(find.text('闲时任务仅向 Coding Plan 订阅用户开放'), findsOneWidget);
   });
 
   testWidgets('submit sheet prefills from a template and submits the wire shape',
@@ -167,12 +167,14 @@ void main() {
     await tester.pumpAndSettle();
 
     // Template chip prefills title + prompt.
-    await tester.tap(find.text('CI flaky 报告'));
+    await tester.tap(find.text('CI 失败与不稳定测试报告'));
     await tester.pumpAndSettle();
-    expect(find.widgetWithText(TextField, '分析最近的 CI 失败，找出 flaky 测试并输出报告'),
+    expect(find.widgetWithText(TextField, '扫描最近的 CI 运行，列出失败和不稳定测试及其可能原因，并按影响范围给出修复建议。'),
         findsOneWidget);
 
-    await tester.tap(find.text('提交'));
+    await tester.ensureVisible(find.text('创建闲时任务'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('创建闲时任务'));
     await tester.pumpAndSettle();
 
     final submit = host.calls
@@ -180,7 +182,7 @@ void main() {
         .toList();
     expect(submit, hasLength(1));
     final wire = submit.single.$2.single as Map<String, dynamic>;
-    expect(wire['prompt'], '分析最近的 CI 失败，找出 flaky 测试并输出报告');
+    expect(wire['prompt'], '扫描最近的 CI 运行，列出失败和不稳定测试及其可能原因，并按影响范围给出修复建议。');
     expect(wire['workspacePath'], '/repo');
     expect(wire['workspaceIdentity'], 'repo-id');
     expect(wire['permissionMode'], 'build');
@@ -205,11 +207,19 @@ void main() {
     await tester.tap(find.text('新建闲时任务'));
     await tester.pumpAndSettle();
     await tester.enterText(
-        find.widgetWithText(TextField, '指令'), '跑一次分析');
-    await tester.tap(find.text('提交'));
+        find.widgetWithText(TextField, '任务指令'), '跑一次分析');
+    // 完全访问 avoids the one-time full-access hint toast (it would queue
+    // in front of the error snackbar).
+    await tester.tap(find.text('权限模式'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('完全访问').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('创建闲时任务'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('创建闲时任务'));
     await tester.pumpAndSettle();
 
-    expect(find.text('本月闲时额度已用尽'), findsOneWidget);
+    expect(find.text('闲时任务额度已用完，请稍后再试'), findsOneWidget);
     // Sheet stays open for correction / cancel (FAB + sheet title both say
     // 新建闲时任务).
     expect(find.text('新建闲时任务'), findsNWidgets(2));
@@ -239,6 +249,9 @@ void main() {
     await tester.tap(find.byType(PopupMenuButton<String>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('取消任务'));
+    await tester.pumpAndSettle();
+    // official confirm dialog before cancelling
+    await tester.tap(find.text('取消任务').last);
     await tester.pumpAndSettle();
 
     final cancel = host.calls.where((c) => c.$1 == 'cancel').toList();

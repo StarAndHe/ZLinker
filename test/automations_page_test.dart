@@ -55,7 +55,7 @@ void main() {
         wrap(const AutomationsPane(session: null)));
     await tester.pumpAndSettle();
 
-    expect(find.text('设备自动化不可用'), findsOneWidget);
+    expect(find.text('设备定时任务不可用'), findsOneWidget);
     expect(find.textContaining('本地定时发送'), findsOneWidget);
     expect(find.text('重试'), findsOneWidget);
   });
@@ -85,19 +85,33 @@ void main() {
         'prompt': '跑一次分析',
         'relativeDelayMinutes': 120,
       },
+      {
+        'automationId': 'a4',
+        'title': '周会',
+        'prompt': 'p',
+        'cronExpr': '0 9 * * 3',
+      },
+      {
+        'automationId': 'a5',
+        'title': '月报',
+        'prompt': 'p',
+        'cronExpr': '30 10 5 * *',
+      },
     ]);
     await tester.pumpWidget(wrap(AutomationsPane(session: host)));
     await tester.pumpAndSettle();
 
     expect(find.text('日报'), findsOneWidget);
-    expect(find.text('按 Cron 0 9 * * *'), findsOneWidget);
+    expect(find.text('每天 09:00'), findsOneWidget);
     expect(find.text('备份'), findsOneWidget);
     expect(find.text('每 6 小时 · 最多 12 次'), findsOneWidget);
     expect(find.text('一次性'), findsOneWidget);
     expect(find.text('一次性 · 2 小时后'), findsOneWidget);
-    expect(find.byType(Switch), findsNWidgets(3));
+    expect(find.text('每周三 09:00'), findsOneWidget);
+    expect(find.text('每月 5 号 10:30'), findsOneWidget);
+    expect(find.byType(Switch), findsNWidgets(5));
     // Items without an enabled field default to enabled.
-    expect(find.text('已启用'), findsNWidgets(3));
+    expect(find.text('运行中'), findsNWidgets(5));
   });
 
   testWidgets('create sheet submits a cron automation via the port',
@@ -107,11 +121,11 @@ void main() {
     await tester.pumpAndSettle();
 
     // Empty state offers the add button.
-    await tester.tap(find.text('新建自动化'));
+    await tester.tap(find.text('创建定时任务'));
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.widgetWithText(TextField, '标题').first, '站会总结');
+        find.widgetWithText(TextField, '任务标题').first, '站会总结');
     await tester.enterText(
         find.widgetWithText(TextField, '指令').first, '总结昨天的 git 提交');
     await tester.pump();
@@ -138,11 +152,11 @@ void main() {
     await tester.pumpWidget(wrap(AutomationsPane(session: host)));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('新建自动化'));
+    await tester.tap(find.text('创建定时任务'));
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.widgetWithText(TextField, '标题').first, 't');
+        find.widgetWithText(TextField, '任务标题').first, 't');
     await tester.enterText(
         find.widgetWithText(TextField, '指令').first, 'p');
     await tester.tap(find.text('一次性延迟'));
@@ -185,7 +199,7 @@ void main() {
     await tester.tap(find.text('删除'));
     await tester.pumpAndSettle();
 
-    expect(find.text('删除自动化？'), findsOneWidget);
+    expect(find.text('删除定时任务'), findsOneWidget);
     // Not deleted yet — cancel first.
     await tester.tap(find.text('取消'));
     await tester.pumpAndSettle();

@@ -177,14 +177,17 @@ class _AutomationsPaneState extends State<AutomationsPane> {
     }
   }
 
-  Future<void> _runOp(Future<void> Function() op) async {
+  Future<void> _runOp(Future<void> Function() op,
+      {String? errorKey}) async {
     if (_busy) return;
     _busy = true;
     try {
       await op();
     } catch (e) {
       if (mounted) {
-        _toast(trP(context, 'auto.opFailed', ['$e']));
+        _toast(errorKey != null
+            ? tr(context, errorKey)
+            : trP(context, 'auto.opFailed', ['$e']));
       }
     } finally {
       _busy = false;
@@ -213,7 +216,7 @@ class _AutomationsPaneState extends State<AutomationsPane> {
         if (mounted) _toast(tr(context, 'auto.saved'));
       }
       await _load();
-    });
+    }, errorKey: edit == null ? 'auto.error.create' : 'auto.error.update');
   }
 
   Future<void> _toggle(AutomationItem item, bool enabled) async {
@@ -222,7 +225,7 @@ class _AutomationsPaneState extends State<AutomationsPane> {
     await _runOp(() async {
       await session.automation.setEnabled(item.id, enabled);
       await _load();
-    });
+    }, errorKey: 'auto.error.toggle');
   }
 
   Future<void> _delete(AutomationItem item) async {
@@ -230,8 +233,7 @@ class _AutomationsPaneState extends State<AutomationsPane> {
       context: context,
       builder: (c) => AlertDialog(
         title: Text(tr(context, 'auto.delete.title')),
-        content: Text(trP(
-            context, 'auto.delete.body',
+        content: Text(trP(context, 'auto.delete.body',
             [item.title.isEmpty ? item.id : item.title])),
         actions: [
           TextButton(
@@ -254,7 +256,7 @@ class _AutomationsPaneState extends State<AutomationsPane> {
       await session.automation.remove(item.id);
       if (mounted) _toast(tr(context, 'auto.deleted'));
       await _load();
-    });
+    }, errorKey: 'auto.error.delete');
   }
 
   @override
@@ -291,12 +293,18 @@ class _AutomationsPaneState extends State<AutomationsPane> {
           children: [
             Text(tr(context, 'auto.empty'),
                 style: TextStyle(
-                    fontSize: 14, color: ZInk.muted(context))),
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: ZInk.solid(context))),
+            const SizedBox(height: 4),
+            Text(tr(context, 'auto.empty.desc'),
+                style:
+                    TextStyle(fontSize: 12.5, color: ZInk.faint(context))),
             const SizedBox(height: 12),
             FilledButton.tonalIcon(
               onPressed: () => _showSheet(),
               icon: const Icon(Icons.add, size: 18),
-              label: Text(tr(context, 'auto.add')),
+              label: Text(tr(context, 'auto.createManually')),
             ),
           ],
         ),
@@ -636,7 +644,7 @@ class AutomationSheetState extends State<AutomationSheet> {
           children: [
             Text(
               tr(context,
-                  widget.initial == null ? 'auto.add' : 'auto.edit'),
+                  widget.initial == null ? 'auto.create' : 'auto.edit'),
               style:
                   const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
@@ -648,14 +656,17 @@ class AutomationSheetState extends State<AutomationSheet> {
             const SizedBox(height: 16),
             TextField(
               controller: _title,
-              decoration: InputDecoration(labelText: tr(context, 'auto.name')),
+              decoration: InputDecoration(
+                  labelText: tr(context, 'auto.name'),
+                  hintText: tr(context, 'auto.name.hint')),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: _prompt,
               maxLines: 3,
-              decoration:
-                  InputDecoration(labelText: tr(context, 'auto.prompt')),
+              decoration: InputDecoration(
+                  labelText: tr(context, 'auto.prompt'),
+                  hintText: tr(context, 'auto.prompt.hint')),
             ),
             const SizedBox(height: 10),
             ModelOptionField(
@@ -742,6 +753,9 @@ class AutomationSheetState extends State<AutomationSheet> {
                 dense: true,
                 title: Text(tr(context, 'auto.recurring'),
                     style: const TextStyle(fontSize: 13)),
+                subtitle: Text(tr(context, 'auto.recurring.hint'),
+                    style:
+                        TextStyle(fontSize: 11, color: ZInk.faint(context))),
                 value: _recurring,
                 onChanged: (v) => setState(() => _recurring = v),
               ),
@@ -750,7 +764,8 @@ class AutomationSheetState extends State<AutomationSheet> {
                   controller: _maxRuns,
                   keyboardType: TextInputType.number,
                   decoration: InputDecoration(
-                      labelText: tr(context, 'auto.maxRuns')),
+                      labelText: tr(context, 'auto.maxRuns'),
+                      hintText: tr(context, 'auto.maxRuns.hint')),
                 ),
             ],
             if (_trigger == AutomationInput.triggerOneShot)
@@ -823,12 +838,13 @@ class AutomationSheetState extends State<AutomationSheet> {
   }
 }
 
-/// Humanized trigger summary (official terms): cron 表达式 / 每 N 单位 /
-/// 一次性延迟.
+/// Humanized trigger summary (official terms): the desktop never shows a
+/// raw cron expression — common shapes map to 每天/每工作日/每周/每月 + time,
+/// anything else falls back to the expression itself.
 String describeTrigger(BuildContext context, AutomationItem item) {
   switch (item.trigger) {
     case AutomationInput.triggerCron:
-      return trP(context, 'auto.cronAt', [item.cronExpr]);
+      return _describeCron(context, item.cronExpr);
     case AutomationInput.triggerInterval:
       final unit =
           tr(context, 'auto.intervalUnit.${item.intervalUnit ?? 'day'}');
@@ -842,6 +858,53 @@ String describeTrigger(BuildContext context, AutomationItem item) {
       return trP(context, 'auto.once',
           [formatDelay(context, item.relativeDelayMinutes ?? 0)]);
   }
+}
+
+/// "30 9 * * *" → 每天 09:30 · "0 9 * * 1-5" → 每工作日 09:00 ·
+/// "0 9 * * 3" → 每周三 09:00 · "0 9 5 * *" → 每月 5 号 09:00.
+/// 5-field cron: minute hour day-of-month month day-of-week.
+String _describeCron(BuildContext context, String expr) {
+  final parts = expr.trim().split(RegExp(r'\s+'));
+  if (parts.length != 5) return trP(context, 'auto.cronAt', [expr]);
+  final minute = parts[0], hour = parts[1], dom = parts[2];
+  final month = parts[3], dow = parts[4];
+  if (!RegExp(r'^\d{1,2}$').hasMatch(minute) ||
+      !RegExp(r'^\d{1,2}$').hasMatch(hour)) {
+    return trP(context, 'auto.cronAt', [expr]);
+  }
+  final time = '${hour.padLeft(2, '0')}:${minute.padLeft(2, '0')}';
+  final bothStar = dom == '*' && month == '*' && dow == '*';
+  if (bothStar) return trP(context, 'auto.cron.daily', [time]);
+  if (dom == '*' && month == '*' && dow == '1-5') {
+    return trP(context, 'auto.cron.weekdays', [time]);
+  }
+  String? weekday(String token) {
+    if (!RegExp(r'^\d$').hasMatch(token)) return null;
+    final d = int.parse(token) % 7;
+    return tr(context, 'auto.weekday.$d');
+  }
+  if (dom == '*' && month == '*') {
+    final name = weekday(dow);
+    if (name != null) return trP(context, 'auto.cron.weekly', [time, name]);
+    // weekday lists like "1,3,5" / "0,6"
+    final names = <String>[];
+    for (final t in dow.split(RegExp(r'[,]'))) {
+      final n = weekday(t);
+      if (n == null) {
+        names.clear();
+        break;
+      }
+      names.add(n);
+    }
+    if (names.isNotEmpty) {
+      return trP(context, 'auto.cron.weekly',
+          [time, names.join(tr(context, 'auto.weekday.sep'))]);
+    }
+  }
+  if (month == '*' && dow == '*' && RegExp(r'^\d{1,2}$').hasMatch(dom)) {
+    return trP(context, 'auto.cron.monthly', [time, dom]);
+  }
+  return trP(context, 'auto.cronAt', [expr]);
 }
 
 /// 90 → 90 分钟; 1440 → 24 小时 → also days for big values.

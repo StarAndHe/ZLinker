@@ -20,6 +20,14 @@ class ModelOptionField extends StatefulWidget {
   final String? value;
   final ValueChanged<String?> onChanged;
 
+  /// Direct option list (skips prepareWorkspace): e.g. the off-peak
+  /// availability payload's `allowedModels` (plain model names).
+  final List<String>? directValues;
+
+  /// Desktop off-peak behavior: no "unspecified" row — the field defaults
+  /// to the first option instead.
+  final bool defaultToFirst;
+
   const ModelOptionField({
     super.key,
     required this.loadOptions,
@@ -28,6 +36,8 @@ class ModelOptionField extends StatefulWidget {
     required this.noneLabel,
     required this.value,
     required this.onChanged,
+    this.directValues,
+    this.defaultToFirst = false,
   });
 
   @override
@@ -48,13 +58,14 @@ class _ModelOptionFieldState extends State<ModelOptionField> {
   }
 
   Future<void> _load() {
-    final load = widget.loadOptions;
-    if (load == null) return Future.value();
+    if (widget.directValues != null || widget.loadOptions == null) {
+      return Future.value();
+    }
     setState(() {
       _loading = true;
       _error = null;
     });
-    return load().then((prep) {
+    return widget.loadOptions!().then((prep) {
       if (mounted) setState(() => _prep = prep);
     }).catchError((e) {
       if (mounted) setState(() => _error = '$e');
@@ -65,10 +76,38 @@ class _ModelOptionFieldState extends State<ModelOptionField> {
 
   ConfigOption? get _option => _prep?.option(widget.optionId);
 
+  /// Display-shape options: direct values win (no provider subtitle),
+  /// else the config option's values.
+  List<({String value, String name, String? subtitle})> get _options {
+    final direct = widget.directValues;
+    if (direct != null) {
+      return [for (final v in direct) (value: v, name: v, subtitle: null)];
+    }
+    return [
+      for (final v in _option?.options ?? const <ConfigOptionValue>[])
+        (
+          value: v.value,
+          name: v.name,
+          subtitle: v.modelProviderName ?? v.description
+        ),
+    ];
+  }
+
+  /// Effective selection: explicit value, else the first option when the
+  /// field defaults to first (desktop off-peak), else null (= 默认).
+  String? get _effectiveValue {
+    final v = widget.value;
+    if (v != null && v.isNotEmpty) return v;
+    if (widget.defaultToFirst && _options.isNotEmpty) {
+      return _options.first.value;
+    }
+    return null;
+  }
+
   String? get _displayName {
-    final value = widget.value;
+    final value = _effectiveValue;
     if (value == null || value.isEmpty) return null;
-    for (final v in _option?.options ?? const <ConfigOptionValue>[]) {
+    for (final v in _options) {
       if (v.value == value) return v.name;
     }
     return value; // unknown/offline: show the stored id as-is
@@ -79,7 +118,7 @@ class _ModelOptionFieldState extends State<ModelOptionField> {
       await _load();
     }
     if (!mounted) return;
-    final option = _option;
+    final options = _options;
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -108,7 +147,7 @@ class _ModelOptionFieldState extends State<ModelOptionField> {
                 if (widget.noneLabel != null)
                   _optionTile(sheetCtx,
                       value: null, name: widget.noneLabel!, subtitle: null),
-                if (option == null || option.options.isEmpty)
+                if (options.isEmpty)
                   Padding(
                     padding: const EdgeInsets.all(16),
                     child: Center(
@@ -123,11 +162,9 @@ class _ModelOptionFieldState extends State<ModelOptionField> {
                     ),
                   )
                 else
-                  for (final v in option.options)
+                  for (final v in options)
                     _optionTile(sheetCtx,
-                        value: v.value,
-                        name: v.name,
-                        subtitle: v.modelProviderName ?? v.description),
+                        value: v.value, name: v.name, subtitle: v.subtitle),
               ],
             ],
           ),
@@ -138,7 +175,7 @@ class _ModelOptionFieldState extends State<ModelOptionField> {
 
   Widget _optionTile(BuildContext sheetCtx,
       {required String? value, required String name, String? subtitle}) {
-    final selected = widget.value == value;
+    final selected = _effectiveValue == value;
     return ListTile(
       dense: true,
       leading: Icon(
