@@ -47,16 +47,36 @@ class OffPeakPort {
     'listOffPeakTasks',
     'listTasks',
   ];
+  // createTask/updateTask/pauseTask/continueTask/cancelTask/deleteTask/
+  // deleteHistory are the desktop service's own names (seen in the desktop
+  // UI chunk's offPeak store); the others keep first-shot precedence from
+  // earlier probing rounds.
   static const _submitMethods = [
     'run',
     'submit',
+    'createTask',
     'submitOffPeakTask',
     'createOffPeakTask',
   ];
-  static const _pauseMethods = ['pause', 'pauseOffPeakTask'];
-  static const _resumeMethods = ['resume', 'resumeOffPeakTask'];
-  static const _cancelMethods = ['cancel', 'cancelOffPeakTask'];
-  static const _deleteMethods = ['delete', 'deleteOffPeakTask'];
+  static const _pauseMethods = ['pause', 'pauseTask', 'pauseOffPeakTask'];
+  static const _resumeMethods = [
+    'resume',
+    'continueTask',
+    'resumeOffPeakTask',
+  ];
+  static const _cancelMethods = ['cancel', 'cancelTask', 'cancelOffPeakTask'];
+  static const _deleteMethods = ['delete', 'deleteTask', 'deleteOffPeakTask'];
+  static const _historyDeleteMethods = [
+    'deleteHistory',
+    'delete',
+    'deleteTask',
+  ];
+  static const _updateMethods = [
+    'updateTask',
+    'editOffPeakTask',
+    'updateOffPeakTask',
+    'update',
+  ];
   static const _statusMethods = ['getStatus', 'getQuota', 'status'];
   static const _wakeMethods = [
     'wake',
@@ -109,9 +129,41 @@ class OffPeakPort {
   Future<void> cancel(String taskId) => _lifecycle('cancel', _cancelMethods,
       {'offPeakTaskId': taskId});
 
-  /// History removal.
+  /// History removal (desktop separates 删除历史记录 from task delete).
+  /// Falls back to the plain delete candidates on older desktops.
   Future<void> remove(String taskId) => _lifecycle('delete', _deleteMethods,
       {'offPeakTaskId': taskId});
+
+  Future<void> deleteHistory(String taskId) =>
+      _lifecycle('history-delete', _historyDeleteMethods,
+          {'offPeakTaskId': taskId});
+
+  // ---------------------------------------------------------------- update
+
+  /// Edits an existing queued/paused run. The desktop update call passes
+  /// `{title, prompt, permissionMode, model, thoughtLevel}` keyed by the
+  /// task id; `model`/`thoughtLevel` arrive as explicit nulls when unset.
+  /// Arg shapes: 0 = `[{offPeakTaskId, ...patch}]`,
+  /// 1 = `[taskId, {patch}]` — resolved once and remembered.
+  Future<void> update(String taskId, OffPeakUpdateInput patch) async {
+    const shapes = 2;
+    Object? firstError;
+    for (var shape = 0; shape < shapes; shape++) {
+      final args = switch (shape) {
+        0 => <Object?>[{'offPeakTaskId': taskId, ...patch.toWire()}],
+        _ => <Object?>[taskId, patch.toWire()],
+      };
+      try {
+        await _probe.run('update:$shape', _updateMethods,
+            argsOf: (_) => args);
+        return;
+      } on ChannelRpcError catch (e) {
+        if (!MethodProbe.missingMethod(e.message)) rethrow;
+        firstError ??= e;
+      }
+    }
+    throw firstError ?? StateError('update: no candidate methods left');
+  }
 
   Future<void> _lifecycle(String op, List<String> methods, Map arg) async {
     try {
@@ -191,6 +243,38 @@ class OffPeakSubmitInput {
         if (title != null && title!.isNotEmpty) 'title': title,
       };}
 
+/// Edit-form patch for an existing run (desktop `updateTask` shape).
+/// [model]/[thoughtLevel] are emitted explicitly (null included) — the
+/// desktop sends `?? null` for them, and they clear overrides when null.
+class OffPeakUpdateInput {
+  final String title;
+  final String prompt;
+  final String permissionMode;
+
+  /// Plain model name (allowedModels entries); null = 默认模型.
+  final String? model;
+
+  /// Thought level (allowedModelConfigs reasoning levels); null = 默认.
+  final String? thoughtLevel;
+
+  const OffPeakUpdateInput({
+    required this.title,
+    required this.prompt,
+    this.permissionMode = 'build',
+    this.model,
+    this.thoughtLevel,
+  });
+
+  Map<String, dynamic> toWire() => {
+        'title': title.trim(),
+        'prompt': prompt.trim(),
+        'permissionMode': permissionMode,
+        'model': (model == null || model!.isEmpty) ? null : model,
+        'thoughtLevel':
+            (thoughtLevel == null || thoughtLevel!.isEmpty) ? null : thoughtLevel,
+      };
+}
+
 /// Parsed `off-peak-run-result`.
 class OffPeakRunResult {
   final bool ok;
@@ -257,6 +341,8 @@ class OffPeakTask {
   /// Server-provided queue position (排队位置); null when not reported.
   int? get queuePosition => (raw['queuePosition'] as num?)?.toInt();
 
+  String? get permissionMode => raw['permissionMode'] as String?;
+
   int? get createdAt => (raw['createdAt'] as num?)?.toInt();
   int? get startedAt => (raw['startedAt'] as num?)?.toInt();
   int? get finishedAt => (raw['finishedAt'] as num?)?.toInt();
@@ -301,6 +387,24 @@ class OffPeakStatus {
   int? get earliestAvailableAt =>
       (raw['earliestAvailableAt'] as num?)?.toInt() ??
       (raw['nextWindowAt'] as num?)?.toInt();
+
+  /// When the exhausted quota resets, epoch ms (额度耗尽后的剩余等待).
+  /// Tolerant: absolute-epoch fields at ms/s scale or an explicit remaining
+  /// duration in ms/seconds.
+  int? quotaResetRemainingMs(int nowMs) {
+    final reset =
+        (raw['quotaResetAt'] as num?)?.toInt() ??
+            (raw['limitReachedResetAt'] as num?)?.toInt();
+    if (reset != null) {
+      final ms = reset < 100000000000 ? reset * 1000 : reset;
+      return ms - nowMs;
+    }
+    final remMs = (raw['quotaResetRemainingMs'] as num?)?.toInt() ??
+        (raw['remainingWaitSeconds'] as num?)?.toInt();
+    if (remMs == null) return null;
+    // Heuristic: seconds-based waits never reach an hour of magnitude.
+    return remMs > 1000000 ? remMs : remMs * 1000;
+  }
 }
 
 /// Classified off-peak failure (门槛/额度/服务不可用), used to pick the

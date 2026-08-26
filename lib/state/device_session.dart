@@ -107,6 +107,10 @@ enum DeviceStatus { disconnected, connecting, connected, error }
 abstract interface class AutomationHost {
   DeviceStatus get status;
   AutomationPort get automation;
+
+  /// Active workspace scope (`workspacePath`/`workspaceIdentity`) attached
+  /// to run-now triggers; the desktop requires it server-side.
+  Map<String, dynamic> get automationScope;
 }
 
 /// Same for the off-peak UI: live status, the off-peak port and the
@@ -772,7 +776,8 @@ class DeviceSession extends ChangeNotifier
     (method, args) => callChannel('off-peak-task', method, args),
   );
 
-  /// Workspace scope (workspacePath/identity) for off-peak submissions.
+  /// Workspace scope (workspacePath/identity) for off-peak submissions and
+  /// automation run-now triggers.
   @override
   Map<String, dynamic> get offPeakScope {
     final ws = _activeWorkspace ?? const <String, dynamic>{};
@@ -782,6 +787,9 @@ class DeviceSession extends ChangeNotifier
         'workspaceIdentity': ws['workspaceIdentity'],
     };
   }
+
+  @override
+  Map<String, dynamic> get automationScope => offPeakScope;
 
   /// Minimal automation primitive: creates a new task (session) on the
   /// active workspace with [text] as the first message. Returns the new

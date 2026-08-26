@@ -60,6 +60,16 @@ class AutomationPort {
     'removeAutomation',
   ];
 
+  /// Run-now (立即运行). The desktop's own port method is
+  /// `runAutomationNow({workspacePath, workspaceIdentity?, automationId})`;
+  /// the others keep MethodProbe-style fallbacks for older builds.
+  static const _runNowMethods = [
+    'runAutomationNow',
+    'triggerAutomation',
+    'automationRunNow',
+    'runNow',
+  ];
+
   /// `updateAutomation` arg shapes: 0 = `[{automationId, ...fields}]`,
   /// 1 = `[automationId, fields]`.
   static const _updateShapes = 2;
@@ -134,6 +144,24 @@ class AutomationPort {
         if (method.startsWith('automation')) id else {'automationId': id},
       ];
     });
+  }
+
+  // --------------------------------------------------------------- run now
+
+  /// Triggers one immediate run (立即运行). [scope] carries
+  /// `{workspacePath, workspaceIdentity?}` of the active workspace — the
+  /// desktop requires it server-side. Returns 'queued' on acceptance or
+  /// 'duplicate' when a run is already in flight; any rejection throws.
+  Future<String> runNow(String id, Map<String, dynamic> scope) async {
+    final res = await _probe.run('runNow', _runNowMethods,
+        argsOf: (_) => [
+              {
+                ...scope,
+                'automationId': id,
+              },
+            ]);
+    final status = res is Map ? '${res['status'] ?? ''}' : '';
+    return status == 'duplicate' ? 'duplicate' : 'queued';
   }
 }
 
@@ -296,6 +324,19 @@ class AutomationItem {
 
   int? get lastRunAt => (raw['lastRunAt'] as num?)?.toInt();
   String? get lastResult => raw['lastResult'] as String?;
+
+  /// Next scheduled fire, epoch ms (下次运行). Tolerates s/ms scales.
+  int? get nextRunAtMs {
+    final v = (raw['nextRunAt'] as num?)?.toInt() ??
+        (raw['nextRunAtMs'] as num?)?.toInt();
+    if (v == null) return null;
+    return v < 100000000000 ? v * 1000 : v;
+  }
+
+  /// Completed-run counter shown as 已运行 n[/max] 次.
+  int? get runCount =>
+      (raw['runCount'] as num?)?.toInt() ??
+      (raw['executedCount'] as num?)?.toInt();
 
   /// Prefills an edit form from this item.
   AutomationInput toInput() => AutomationInput(
