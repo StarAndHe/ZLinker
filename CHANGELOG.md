@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-08-26
+
+### Changed
+
+- **Workspace collapse rewritten to the official-web model**: only the
+  active workspace starts expanded (following device state), tapping a
+  card is a two-way toggle, and 收起全部工作区 is one-way with a constant
+  label. Fixes the bug where a single expanded card could never collapse.
+- **Off-peak / automation model fields are selectors** sourced from the
+  device (availability `allowedModels`, first option default;
+  prepareWorkspace fallback) with a 默认模型 choice on automations —
+  desktop-parity, no typing.
+- Client-only pages re-aligned to the ZCode desktop dictionary (extracted
+  from the desktop renderer bundle): off-peak statuses/badges/dialogs,
+  cancel confirmation, official templates, automation 定时任务 copy,
+  humanized cron summaries (每天 09:00 / 每周三 09:00 / 每月 5 号 10:30),
+  per-operation error toasts, 模型设置 / 使用统计 menu naming.
+- Chat page web parity: 更多 menu order + pin toggle, official mode
+  selector copy with subtitles, send button disabled on empty input,
+  provider-grouped model menu, 模型已切换 marker copy.
+- 整理任务 opens the official group/sort panel (按工作区 / 按时间线 with
+  day buckets; 创建时间 / 更新时间 ordering), replacing the running-first
+  toggle.
+
+### Added
+
+- Desktop sidebar: 插件市场 entry, 筛选和排序, and an 归档 filter over
+  workspace tasks.
+- `DeviceSessionHub.installForTesting` seam; e2e click-path test
+  (devices → list → chat → back) plus collapse/tidy/form-selector suites.
+- Store: Apple review notes (bilingual), demo screen recordings, and the
+  scripted demo recorder (Windows runner included).
+
 ## [1.6.1] - 2026-08-24
 
 ### Changed
