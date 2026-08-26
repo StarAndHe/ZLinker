@@ -8,6 +8,15 @@ import 'model_option_field.dart';
 import 'theme.dart';
 import 'ui_settings.dart';
 
+/// One 定时任务模板 idea (official moreIdeas trio): dictionary key plus
+/// its cron preset and display schedule.
+class _Idea {
+  final String key;
+  final String schedule;
+  final String cron;
+  const _Idea(this.key, this.schedule, this.cron);
+}
+
 /// Server-side automations of one device (desktop zcode-cron-scheduler).
 /// Standalone page with a device picker; the pane itself is embedded by
 /// the scheduled page so both entries share the exact list UI.
@@ -129,6 +138,12 @@ class AutomationsPane extends StatefulWidget {
 }
 
 class _AutomationsPaneState extends State<AutomationsPane> {
+  static const _templateIdeas = [
+    _Idea('weeklyReview', '每周五 16:00', '0 16 * * 5'),
+    _Idea('meetingPrep', '每周五 16:00', '0 16 * * 5'),
+    _Idea('contentIdeas', '每周一 9:00', '0 9 * * 1'),
+  ];
+
   List<AutomationItem> _items = const [];
   bool _loading = true;
   String? _error;
@@ -228,6 +243,21 @@ class _AutomationsPaneState extends State<AutomationsPane> {
     }, errorKey: 'auto.error.toggle');
   }
 
+  /// 立即运行: official queued/duplicate/failed toast trio.
+  Future<void> _runNow(AutomationItem item) async {
+    final session = widget.session;
+    if (session == null) return;
+    await _runOp(() async {
+      final result =
+          await session.automation.runNow(item.id, session.automationScope);
+      if (!mounted) return;
+      _toast(tr(context, switch (result) {
+        'duplicate' => 'auto.runNowDuplicate',
+        _ => 'auto.runNowQueued',
+      }));
+    }, errorKey: 'auto.runNowFailed');
+  }
+
   Future<void> _delete(AutomationItem item) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -306,6 +336,11 @@ class _AutomationsPaneState extends State<AutomationsPane> {
               icon: const Icon(Icons.add, size: 18),
               label: Text(tr(context, 'auto.createManually')),
             ),
+            TextButton.icon(
+              onPressed: () => _pickTemplate(),
+              icon: const Icon(Icons.auto_awesome_outlined, size: 16),
+              label: Text(tr(context, 'auto.templates')),
+            ),
           ],
         ),
       );
@@ -340,7 +375,70 @@ class _AutomationsPaneState extends State<AutomationsPane> {
         ),
       );
 
-  /// Mirrors the task-list fallback view: reason + retry + guidance to the
+
+Future<void> _pickTemplate() async {
+  final picked = await showModalBottomSheet<_Idea>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetCtx) => SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 16),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+            child: Text(tr(sheetCtx, 'auto.templates'),
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w600)),
+          ),
+          for (final idea in _templateIdeas)
+            ListTile(
+              dense: true,
+              title: Text(tr(sheetCtx, 'auto.tpl.${idea.key}.title'),
+                  style: const TextStyle(
+                      fontSize: 13.5, fontWeight: FontWeight.w600)),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(idea.schedule,
+                      style:
+                          TextStyle(fontSize: 11, color: ZColors.sky500)),
+                  Text(tr(sheetCtx, 'auto.tpl.${idea.key}.desc'),
+                      style: TextStyle(
+                          fontSize: 11.5, color: ZInk.muted(sheetCtx))),
+                ],
+              ),
+              trailing: Icon(Icons.arrow_forward_ios,
+                  size: 14, color: ZInk.ghost(sheetCtx)),
+              onTap: () => Navigator.pop(sheetCtx, idea),
+            ),
+        ],
+      ),
+    ),
+  );
+  if (picked == null || !mounted) return;
+  final prompt = tr(context, 'auto.tpl.${picked.key}.prompt');
+  final title = tr(context, 'auto.tpl.${picked.key}.title');
+  final session = widget.session;
+  if (!mounted) return;
+  final completed = await showModalBottomSheet<AutomationInput>(
+    context: context,
+    isScrollControlled: true,
+    builder: (c) => AutomationSheet(
+      template: (title: title, prompt: prompt, cronExpr: picked.cron),
+      loadOptions:
+          session is DeviceSession ? session.prepareWorkspace : null,
+    ),
+  );
+  if (completed == null || session == null || !mounted) return;
+  await _runOp(() async {
+    await session.automation.create(completed);
+    if (mounted) _toast(tr(context, 'auto.created'));
+    await _load();
+  }, errorKey: 'auto.error.create');
+}
+
+/// Mirrors the task-list fallback view: reason + retry + guidance to the
   /// local scheduled-send fallback.
   Widget _unavailable(BuildContext context) {
     return Center(
@@ -396,6 +494,17 @@ class _AutomationsPaneState extends State<AutomationsPane> {
         ),
       ),
     );
+  }
+
+  /// 已运行 n 次 / 已运行 n/max 次 (official count copy).
+  String _runCountLabel(BuildContext context, AutomationItem item) {
+    final count = item.runCount ?? 0;
+    final max = item.maxRuns;
+    final limited = max != null && max > 0 && !item.recurring;
+    return trP(
+        context,
+        limited ? 'auto.runCountLimited' : 'auto.runCount',
+        limited ? ['$count', '$max'] : ['$count']);
   }
 
   Widget _itemCard(AutomationItem item) {
@@ -463,11 +572,21 @@ class _AutomationsPaneState extends State<AutomationsPane> {
                             fontSize: 12, color: ZInk.muted(context)),
                       ),
                     ),
-                  if (item.lastRunAt != null) ...[
+                  if (item.lastRunAt != null || item.nextRunAtMs != null ||
+                      item.runCount != null) ...[
                     const SizedBox(height: 4),
                     Text(
-                      trP(context, 'auto.lastRun',
-                          [relativeTime(context, item.lastRunAt!)]),
+                      [
+                        if (item.lastRunAt != null)
+                          trP(context, 'auto.lastRun',
+                              [relativeTime(context, item.lastRunAt!)]),
+                        // 下次运行 {when} — shown while the automation is on.
+                        if (item.enabled && item.nextRunAtMs != null)
+                          trP(context, 'auto.nextRun',
+                              [relativeTime(context, item.nextRunAtMs!)]),
+                        if (item.runCount != null)
+                          _runCountLabel(context, item),
+                      ].join(' · '),
                       style: TextStyle(
                           fontSize: 11, color: ZInk.ghost(context)),
                     ),
@@ -482,6 +601,8 @@ class _AutomationsPaneState extends State<AutomationsPane> {
             PopupMenuButton<String>(
               onSelected: (v) {
                 switch (v) {
+                  case 'run-now':
+                    _runNow(item);
                   case 'edit':
                     _showSheet(edit: item);
                   case 'delete':
@@ -489,6 +610,16 @@ class _AutomationsPaneState extends State<AutomationsPane> {
                 }
               },
               itemBuilder: (c) => [
+                PopupMenuItem(
+                  value: 'run-now',
+                  child: Row(
+                    children: [
+                      const Icon(Icons.play_arrow_outlined, size: 18),
+                      const SizedBox(width: 8),
+                      Text(tr(context, 'auto.runNow')),
+                    ],
+                  ),
+                ),
                 PopupMenuItem(
                   value: 'edit',
                   child: Row(
@@ -520,15 +651,23 @@ class _AutomationsPaneState extends State<AutomationsPane> {
   }
 }
 
+/// Frequency presets mirroring the official schedule control
+/// (每小时/每天/每工作日/每周/每月/自定义/一次性延迟).
+enum FrequencyPreset { hourly, daily, weekdays, weekly, monthly, customInterval, once }
+
 /// Create/edit form (bottom sheet, official mobile form shape). Field order
-/// follows the official web form: title → prompt → model → trigger rule.
+/// follows the official web form: title → prompt → model → frequency rule.
 class AutomationSheet extends StatefulWidget {
   final AutomationInput? initial;
+
+  /// Prefilled from a tapped 定时任务模板 tile.
+  final ({String title, String prompt, String cronExpr})? template;
 
   /// prepareWorkspace loader (the full device session): drives the model /
   /// thought-level selectors — desktop parity, pick instead of type.
   final Future<WorkspacePrep> Function()? loadOptions;
-  const AutomationSheet({super.key, this.initial, this.loadOptions});
+  const AutomationSheet(
+      {super.key, this.initial, this.template, this.loadOptions});
 
   @override
   State<AutomationSheet> createState() => AutomationSheetState();
@@ -547,26 +686,36 @@ class AutomationSheetState extends State<AutomationSheet> {
   /// (automation carries model + provider separately); null = 默认.
   String? _modelValue;
   String? _thought;
-  late String _trigger;
   late String _intervalUnit;
   late bool _recurring;
   String? _mode;
   bool _advanced = false;
 
+  FrequencyPreset _preset = FrequencyPreset.daily;
+  TimeOfDay _timeOfDay = const TimeOfDay(hour: 9, minute: 0);
+  final Set<int> _weekdays = {1};
+  int _monthDay = 1;
+
   @override
   void initState() {
     super.initState();
-    final init = widget.initial;
+    final init = widget.initial ??
+        (widget.template == null
+            ? null
+            : AutomationInput(
+                title: widget.template!.title,
+                prompt: widget.template!.prompt,
+                cronExpr: widget.template!.cronExpr));
     _title = TextEditingController(text: init?.title ?? '');
     _prompt = TextEditingController(text: init?.prompt ?? '');
     _cron = TextEditingController(text: init?.cronExpr ?? '0 9 * * *');
-    _interval = TextEditingController(text: '${init?.interval ?? 1}');
+    _interval = TextEditingController(text: '${init?.interval ?? 30}');
     _maxRuns = TextEditingController(text: '${init?.maxRuns ?? 10}');
     _delay = TextEditingController(
         text: '${init?.relativeDelayMinutes ?? 60}');
-    _trigger = init?.trigger ?? AutomationInput.triggerCron;
     _intervalUnit = init?.intervalUnit ?? 'day';
     _recurring = init?.recurring ?? true;
+    _derivePreset(init);
     _mode = init?.mode;
     _modelValue = (init?.provider ?? '').isNotEmpty && (init?.model ?? '').isNotEmpty
         ? '${init!.provider}/${init.model}'
@@ -589,6 +738,128 @@ class AutomationSheetState extends State<AutomationSheet> {
     super.dispose();
   }
 
+  /// Maps an edited item's trigger onto the closest frequency preset so
+  /// edits open with recognizable controls instead of a bare expression.
+  void _derivePreset(AutomationInput? init) {
+    if (init == null) return;
+    if (init.trigger == AutomationInput.triggerOneShot) {
+      _preset = FrequencyPreset.once;
+      return;
+    }
+    if (init.trigger == AutomationInput.triggerInterval) {
+      _preset = FrequencyPreset.customInterval;
+      return;
+    }
+    final parts = (init.cronExpr ?? '').trim().split(RegExp(r'\s+'));
+    if (parts.length != 5 ||
+        !RegExp(r'^\d{1,2}$').hasMatch(parts[0]) ||
+        !RegExp(r'^\d{1,2}$').hasMatch(parts[1])) {
+      // Legacy/unparseable shapes land on daily without touching the value:
+      // saving regenerates only when another control changes.
+      _preset = FrequencyPreset.daily;
+      return;
+    }
+    final dom = parts[2], month = parts[3], dow = parts[4];
+    if (dom == '*' && month == '*' && dow == '*') {
+      if (parts[0] == '0' && parts[1] == '*') {
+        // '0 * * * *' — the hourly preset's own shape.
+        _preset = FrequencyPreset.hourly;
+        return;
+      }
+      final minute = int.parse(parts[0]);
+      final hour = int.parse(parts[1]);
+      _timeOfDay = TimeOfDay(hour: hour, minute: minute);
+      _preset = FrequencyPreset.daily;
+      return;
+    }
+    if (!(RegExp(r'^\d{1,2}$').hasMatch(parts[0]) &&
+        RegExp(r'^\d{1,2}$').hasMatch(parts[1]))) {
+      // Wildcard-minute shapes (*/15 …): expose as custom interval.
+      _preset = FrequencyPreset.customInterval;
+      return;
+    }
+    _timeOfDay = TimeOfDay(
+        hour: int.parse(parts[1]), minute: int.parse(parts[0]));
+    if (dom == '*' && month == '*' && dow == '1-5') {
+      _preset = FrequencyPreset.weekdays;
+      return;
+    }
+    if (dom == '*' && month == '*' && RegExp(r'^[0-6](,[0-6])*$').hasMatch(dow)) {
+      _preset = FrequencyPreset.weekly;
+      _weekdays
+        ..clear()
+        ..addAll([for (final t in dow.split(',')) int.parse(t) % 7]);
+      return;
+    }
+    if (month == '*' &&
+        dow == '*' &&
+        RegExp(r'^\d{1,2}$').hasMatch(dom)) {
+      _preset = FrequencyPreset.monthly;
+      _monthDay = int.parse(dom);
+      return;
+    }
+    _preset = FrequencyPreset.customInterval;
+  }
+
+  /// Cron minute/hour from the picked time.
+  String get _timePart =>
+      '${_timeOfDay.hour.toString().padLeft(2, '0')}:'
+      '${_timeOfDay.minute.toString().padLeft(2, '0')}';
+
+  List<int> _sortedWeekdays() => _weekdays.toList()..sort();
+
+  Future<void> _pickTime() async {
+    final t = await showTimePicker(context: context, initialTime: _timeOfDay);
+    if (t != null) setState(() => _timeOfDay = t);
+  }
+
+  /// Synthetic item feeding the humanized schedule preview.
+  AutomationItem _previewItem() {
+    final cron = _effectiveCron();
+    return AutomationItem({
+      'automationId': 'preview',
+      'title': _title.text,
+      'prompt': _prompt.text,
+      if (cron != null)
+        'cronExpr': cron
+      else if (_preset == FrequencyPreset.customInterval) ...{
+        'interval': int.tryParse(_interval.text.trim()) ?? 1,
+        'intervalUnit': _intervalUnit,
+        'recurring': _recurring,
+        if (!_recurring) 'maxRuns': int.tryParse(_maxRuns.text.trim()) ?? 1,
+      } else ...{
+        'relativeDelayMinutes': int.tryParse(_delay.text.trim()) ?? 1,
+        'recurring': false,
+        'maxRuns': 1,
+      },
+    });
+  }
+
+  /// Opens the official custom-repeat dialog and applies its result to the
+  /// interval controllers.
+  Future<void> _openCustomRepeat() async {
+    final result = await showDialog<CustomRepeatResult>(
+      context: context,
+      builder: (_) => CustomRepeatDialog(
+        initial: CustomRepeatResult(
+          interval: int.tryParse(_interval.text.trim()) ?? 30,
+          unit: _intervalUnit,
+          recurring: _recurring,
+        ),
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _interval.text = '${result.interval}';
+      _intervalUnit = result.unit;
+      _recurring = result.recurring;
+      if (!result.recurring) {
+        _maxRuns.text = '\${result.maxRuns ?? 1}';
+      }
+      _preset = FrequencyPreset.customInterval;
+    });
+  }
+
   void _submit() {
     // Split the composite option value back into the wire's provider+model.
     String? provider;
@@ -603,11 +874,18 @@ class AutomationSheetState extends State<AutomationSheet> {
         model = mv;
       }
     }
+    // Presets regenerate the expression; interval/one-shot keep their own
+    // wire shapes.
+    final presetCron = _effectiveCron();
     final input = AutomationInput(
       title: _title.text,
       prompt: _prompt.text,
-      trigger: _trigger,
-      cronExpr: _cron.text,
+      trigger: _preset == FrequencyPreset.once
+          ? AutomationInput.triggerOneShot
+          : (_preset == FrequencyPreset.customInterval
+              ? AutomationInput.triggerInterval
+              : AutomationInput.triggerCron),
+      cronExpr: presetCron ?? _cron.text,
       interval: int.tryParse(_interval.text.trim()),
       intervalUnit: _intervalUnit,
       recurring: _recurring,
@@ -630,6 +908,28 @@ class AutomationSheetState extends State<AutomationSheet> {
       return;
     }
     Navigator.pop(context, input);
+  }
+
+
+  /// Wire expression produced by the active preset (null for interval /
+  /// one-shot, which carry dedicated fields).
+  String? _effectiveCron() {
+    final m = _timeOfDay.minute, h = _timeOfDay.hour;
+    switch (_preset) {
+      case FrequencyPreset.hourly:
+        return '0 * * * *';
+      case FrequencyPreset.daily:
+        return '$m $h * * *';
+      case FrequencyPreset.weekdays:
+        return '$m $h * * 1-5';
+      case FrequencyPreset.weekly:
+        return '$m $h * * ${_sortedWeekdays().join(',')}';
+      case FrequencyPreset.monthly:
+        return '$m $h $_monthDay * *';
+      case FrequencyPreset.customInterval:
+      case FrequencyPreset.once:
+        return null;
+    }
   }
 
   @override
@@ -678,75 +978,107 @@ class AutomationSheetState extends State<AutomationSheet> {
               onChanged: (v) => setState(() => _modelValue = v),
             ),
             const SizedBox(height: 16),
-            Text(tr(context, 'auto.trigger'),
+            // Official frequency presets; interval shapes come from the
+            // custom-repeat dialog under 自定义….
+            Text(tr(context, 'auto.preset'),
                 style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                     color: ZInk.muted(context))),
             const SizedBox(height: 8),
-            SegmentedButton<String>(
-              segments: [
-                ButtonSegment(
-                  value: AutomationInput.triggerCron,
-                  label: Text(tr(context, 'auto.trigger.cron')),
-                ),
-                ButtonSegment(
-                  value: AutomationInput.triggerInterval,
-                  label: Text(tr(context, 'auto.trigger.interval')),
-                ),
-                ButtonSegment(
-                  value: AutomationInput.triggerOneShot,
-                  label: Text(tr(context, 'auto.trigger.oneShot')),
-                ),
+            DropdownButtonFormField<FrequencyPreset>(
+              initialValue: _preset,
+              decoration:
+                  InputDecoration(labelText: tr(context, 'auto.preset')),
+              items: [
+                for (final preset in FrequencyPreset.values)
+                  DropdownMenuItem(
+                    value: preset,
+                    child: Text(switch (preset) {
+                      FrequencyPreset.hourly =>
+                        tr(context, 'auto.freq.hourly'),
+                      FrequencyPreset.daily => tr(context, 'auto.freq.daily'),
+                      FrequencyPreset.weekdays =>
+                        tr(context, 'auto.freq.weekdays'),
+                      FrequencyPreset.weekly => tr(context, 'auto.freq.weekly'),
+                      FrequencyPreset.monthly =>
+                        tr(context, 'auto.freq.monthly'),
+                      FrequencyPreset.customInterval =>
+                        tr(context, 'auto.freq.customInterval'),
+                      FrequencyPreset.once =>
+                        tr(context, 'auto.trigger.oneShot'),
+                    }),
+                  ),
               ],
-              selected: {_trigger},
-              onSelectionChanged: (s) => setState(() => _trigger = s.first),
-              showSelectedIcon: false,
+              onChanged: (v) async {
+                if (v == null || v == _preset) return;
+                if (v == FrequencyPreset.customInterval) {
+                  await _openCustomRepeat();
+                  return;
+                }
+                setState(() => _preset = v);
+              },
             ),
             const SizedBox(height: 10),
-            if (_trigger == AutomationInput.triggerCron) ...[
-              TextField(
-                controller: _cron,
-                style:
-                    const TextStyle(fontSize: 13, fontFamily: 'monospace'),
-                decoration: InputDecoration(
-                  labelText: tr(context, 'auto.cronExpr'),
-                  helperText: tr(context, 'auto.cronHint'),
+            if (_preset != FrequencyPreset.once &&
+                _preset != FrequencyPreset.hourly &&
+                _preset != FrequencyPreset.customInterval)
+              InkWell(
+                onTap: _pickTime,
+                borderRadius: BorderRadius.circular(8),
+                child: InputDecorator(
+                  decoration:
+                      InputDecoration(labelText: tr(context, 'auto.time')),
+                  child: Text(_timePart),
+                ),
+              ),
+            if (_preset == FrequencyPreset.weekly) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (var d = 1; d <= 7; d++)
+                      FilterChip(
+                        label: Text(tr(context, 'auto.weekday.${d % 7}')),
+                        selected: _weekdays.contains(d % 7),
+                        onSelected: (on) => setState(() {
+                          on
+                              ? _weekdays.add(d % 7)
+                              : _weekdays.remove(d % 7);
+                          if (_weekdays.isEmpty) _weekdays.add(1);
+                        }),
+                      ),
+                  ],
                 ),
               ),
             ],
-            if (_trigger == AutomationInput.triggerInterval) ...[
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: TextField(
-                      controller: _interval,
-                      keyboardType: TextInputType.number,
-                      decoration: InputDecoration(
-                          labelText: tr(context, 'auto.interval')),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    flex: 3,
-                    child: DropdownButtonFormField<String>(
-                      initialValue: _intervalUnit,
-                      decoration: InputDecoration(
-                          labelText: tr(context, 'auto.intervalUnit.label')),
-                      items: [
-                        for (final u in AutomationInput.intervalUnits)
-                          DropdownMenuItem(
-                            value: u,
-                            child: Text(tr(context, 'auto.intervalUnit.$u')),
-                          ),
-                      ],
-                      onChanged: (v) =>
-                          setState(() => _intervalUnit = v ?? _intervalUnit),
-                    ),
-                  ),
+            if (_preset == FrequencyPreset.monthly) ...[
+              const SizedBox(height: 10),
+              DropdownButtonFormField<int>(
+                initialValue: _monthDay.clamp(1, 28),
+                decoration:
+                    InputDecoration(labelText: tr(context, 'auto.monthDay')),
+                items: [
+                  for (var d = 1; d <= 28; d++)
+                    DropdownMenuItem(value: d, child: Text('$d')),
                 ],
+                onChanged: (v) => setState(() => _monthDay = v ?? _monthDay),
+              ),
+            ],
+            if (_preset == FrequencyPreset.customInterval) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  trP(context, 'auto.every', [
+                    _interval.text.trim(),
+                    tr(context, 'auto.intervalUnit.$_intervalUnit'),
+                  ]),
+                  style: const TextStyle(fontSize: 13),
+                ),
               ),
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
@@ -768,7 +1100,7 @@ class AutomationSheetState extends State<AutomationSheet> {
                       hintText: tr(context, 'auto.maxRuns.hint')),
                 ),
             ],
-            if (_trigger == AutomationInput.triggerOneShot)
+            if (_preset == FrequencyPreset.once)
               TextField(
                 controller: _delay,
                 keyboardType: TextInputType.number,
@@ -777,6 +1109,19 @@ class AutomationSheetState extends State<AutomationSheet> {
                   helperText: tr(context, 'auto.delayHint'),
                 ),
               ),
+            const SizedBox(height: 8),
+            // 运行时间预览（official schedule.preview line）.
+            Builder(builder: (context) {
+              final previewItem = _previewItem();
+              return Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  trP(context, 'auto.schedule.preview',
+                      [describeTrigger(context, previewItem)]),
+                  style: TextStyle(fontSize: 11, color: ZInk.ghost(context)),
+                ),
+              );
+            }),
             const SizedBox(height: 6),
             _advancedSection(context),
             const SizedBox(height: 16),
@@ -832,6 +1177,187 @@ class AutomationSheetState extends State<AutomationSheet> {
           style: const TextStyle(fontSize: 13, fontFamily: 'monospace'),
           decoration: InputDecoration(
               labelText: tr(context, 'auto.targetTask')),
+        ),
+      ],
+    );
+  }
+}
+
+/// Result of the custom-repeat dialog: interval wire shape with optional
+/// finite-run estimation from a chosen end date.
+class CustomRepeatResult {
+  final int interval;
+  final String unit;
+  final bool recurring;
+
+  /// Estimated cap when an end date was picked (the wire has no endDate,
+  /// so the scheduler stops after this many runs).
+  final int? maxRuns;
+  const CustomRepeatResult({
+    required this.interval,
+    required this.unit,
+    required this.recurring,
+    this.maxRuns,
+  });
+}
+
+/// Official 自定义重复 dialog: every N minutes/hours/days/weeks/months/years
+/// ending never / on a chosen date.
+class CustomRepeatDialog extends StatefulWidget {
+  final CustomRepeatResult initial;
+  const CustomRepeatDialog({super.key, required this.initial});
+
+  @override
+  State<CustomRepeatDialog> createState() => _CustomRepeatDialogState();
+}
+
+class _CustomRepeatDialogState extends State<CustomRepeatDialog> {
+  late int _interval = widget.initial.interval;
+  late String _unit = widget.initial.unit;
+  late bool _neverEnds = widget.initial.recurring;
+  DateTime? _endDate;
+
+  static const _stepMs = {
+    'minute': 60000,
+    'hour': 3600000,
+    'day': 86400000,
+    'week': 7 * 86400000,
+    'month': 30 * 86400000,
+    'year': 365 * 86400000,
+  };
+
+  Widget _endsChoice(
+    BuildContext context, {
+    required bool selected,
+    required bool value,
+    required String label,
+    required VoidCallback onPick,
+  }) =>
+      ListTile(
+        dense: true,
+        contentPadding: EdgeInsets.zero,
+        visualDensity: VisualDensity.compact,
+        leading: Icon(
+          selected == value ? Icons.radio_button_checked : Icons.radio_button_off,
+          size: 18,
+          color: selected == value ? ZColors.sky500 : ZInk.ghost(context),
+        ),
+        title: Text(label, style: const TextStyle(fontSize: 13)),
+        onTap: onPick,
+      );
+
+  int? get _estimatedRuns {
+    if (_neverEnds || _endDate == null) return null;
+    final stepMs = (_interval.clamp(1, 200)) * (_stepMs[_unit] ?? 0);
+    if (stepMs <= 0) return null;
+    final diff = _endDate!.millisecondsSinceEpoch -
+        DateTime.now().millisecondsSinceEpoch;
+    if (diff <= 0) return null;
+    return (diff / stepMs).ceil().clamp(1, 999);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(tr(context, 'auto.custom.title')),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: TextFormField(
+                    initialValue: '$_interval',
+                    keyboardType: TextInputType.number,
+                    decoration:
+                        InputDecoration(labelText: tr(context, 'auto.custom.every')),
+                    onChanged: (v) =>
+                        _interval = int.tryParse(v.trim()) ?? _interval,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 3,
+                  child: DropdownButtonFormField<String>(
+                    initialValue: _unit,
+                    decoration: InputDecoration(
+                        labelText: tr(context, 'auto.intervalUnit.label')),
+                    items: [
+                      for (final u in AutomationInput.intervalUnits)
+                        DropdownMenuItem(
+                            value: u,
+                            child: Text(tr(context, 'auto.intervalUnit.$u'))),
+                    ],
+                    onChanged: (v) => setState(() => _unit = v ?? _unit),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(tr(context, 'auto.custom.ends'),
+                style: TextStyle(fontSize: 12, color: ZInk.muted(context))),
+            _endsChoice(
+              context,
+              selected: _neverEnds,
+              value: true,
+              label: tr(context, 'auto.custom.never'),
+              onPick: () => setState(() => _neverEnds = true),
+            ),
+            _endsChoice(
+              context,
+              selected: _neverEnds,
+              value: false,
+              label: tr(context, 'auto.custom.until'),
+              onPick: () => setState(() => _neverEnds = false),
+            ),
+            if (!_neverEnds)
+              InkWell(
+                onTap: () async {
+                  final d = await showDatePicker(
+                    context: context,
+                    initialDate:
+                        _endDate ?? DateTime.now().add(const Duration(days: 30)),
+                    firstDate: DateTime.now(),
+                    lastDate: DateTime.now().add(const Duration(days: 3650)),
+                  );
+                  if (d != null) setState(() => _endDate = d);
+                },
+                borderRadius: BorderRadius.circular(8),
+                child: InputDecorator(
+                  decoration:
+                      InputDecoration(labelText: tr(context, 'auto.custom.dateLabel')),
+                  child: Text(_endDate == null
+                      ? tr(context, 'auto.custom.dateLabel')
+                      : '${_endDate!.year}-${_endDate!.month.toString().padLeft(2, '0')}-${_endDate!.day.toString().padLeft(2, '0')}'),
+                ),
+              ),
+            if (_estimatedRuns != null) ...[
+              const SizedBox(height: 6),
+              Text(trP(context, 'auto.custom.estRuns', ['$_estimatedRuns']),
+                  style: TextStyle(fontSize: 11, color: ZInk.faint(context))),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(tr(context, 'devices.add.cancel'))),
+        FilledButton(
+          onPressed: () => Navigator.pop(
+            context,
+            CustomRepeatResult(
+              interval: _interval,
+              unit: _unit,
+              recurring: _neverEnds,
+              maxRuns: _estimatedRuns,
+            ),
+          ),
+          child: Text(tr(context, 'devices.rename.save')),
         ),
       ],
     );

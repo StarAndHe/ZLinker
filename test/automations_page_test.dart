@@ -16,6 +16,12 @@ class FakeAutomationHost implements AutomationHost {
   @override
   DeviceStatus status;
 
+  Object Function(String method, List<Object?> args)? respond;
+
+  @override
+  Map<String, dynamic> get automationScope =>
+      const {'workspacePath': '/repo'};
+
   final List<Map<String, dynamic>> items;
   final List<(String, List<Object?>)> calls = [];
   Object Function(String method, List<Object?> args)? failWith;
@@ -34,7 +40,7 @@ class FakeAutomationHost implements AutomationHost {
     if (method.contains('list') || method.contains('List')) {
       return items;
     }
-    return null;
+    return respond?.call(method, args);
   }
 }
 
@@ -159,7 +165,10 @@ void main() {
         find.widgetWithText(TextField, '任务标题').first, 't');
     await tester.enterText(
         find.widgetWithText(TextField, '指令').first, 'p');
-    await tester.tap(find.text('一次性延迟'));
+    // 频率预设 dropdown replaces the old segmented switcher.
+    await tester.tap(find.text('每天'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('一次性延迟').last);
     await tester.pumpAndSettle();
     // 0 minutes must fail validation and keep the sheet open.
     await tester.enterText(find.widgetWithText(TextField, '延迟分钟数'), '0');
@@ -215,6 +224,133 @@ void main() {
 
     expect(
         host.calls.where((c) => c.$1.contains('elete')), hasLength(1));
+  });
+
+  testWidgets('cards show next-run and run-count bookkeeping',
+      (tester) async {
+    final host = FakeAutomationHost(DeviceStatus.connected, [
+      {
+        'automationId': 'a1',
+        'title': '日报',
+        'prompt': '写日报',
+        'cronExpr': '0 9 * * *',
+        'enabled': true,
+        'runCount': 3,
+      },
+      {
+        'automationId': 'a2',
+        'title': '备份',
+        'prompt': '备份数据库',
+        'interval': 6,
+        'intervalUnit': 'hour',
+        'recurring': false,
+        'maxRuns': 10,
+        'runCount': 3,
+        'nextRunAt':
+            DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch,
+      },
+    ]);
+    await tester.pumpWidget(wrap(AutomationsPane(session: host)));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('已运行 3 次'), findsOneWidget);
+    expect(find.textContaining('已运行 3/10 次'), findsOneWidget);
+    expect(find.textContaining('下次运行'), findsOneWidget);
+  });
+
+  testWidgets('run-now reports queued / duplicate through the port',
+      (tester) async {
+    final host = FakeAutomationHost(DeviceStatus.connected, [
+      {'automationId': 'a1', 'title': '日报', 'prompt': 'p',
+       'cronExpr': '0 9 * * *'},
+    ]);
+    host.respond = (method, args) {
+      if (method == 'runAutomationNow') {
+        return {'status': 'queued'};
+      }
+      return const <String, dynamic>{};
+    };
+    await tester.pumpWidget(wrap(AutomationsPane(session: host)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('立即运行'));
+    await tester.pumpAndSettle();
+
+    final runNow =
+        host.calls.where((c) => c.$1 == 'runAutomationNow').toList();
+    expect(runNow, hasLength(1));
+    // Desktop wire: workspace scope first, then automationId.
+    expect((runNow.single.$2.single as Map)['automationId'], 'a1');
+    expect((runNow.single.$2.single as Map)['workspacePath'], '/repo');
+    expect(find.text('已触发，即将运行'), findsOneWidget);
+
+    // Expire the first toast so it cannot shadow the duplicate copy.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump(const Duration(seconds: 1));
+
+    // Duplicate response maps to the official already-running copy.
+    host.respond = (m, a) => <String, dynamic>{'status': 'duplicate'};
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('立即运行'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('上一条正在运行中'), findsOneWidget);
+  });
+
+  testWidgets('weekly-review template prefills and creates via the port',
+      (tester) async {
+    final host = FakeAutomationHost(DeviceStatus.connected);
+    await tester.pumpWidget(wrap(AutomationsPane(session: host)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('定时任务模板'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('每周回顾'));
+    await tester.pumpAndSettle();
+
+    // Template schedule lands in the preset controls; saving submits cron.
+    await tester.enterText(
+        find.widgetWithText(TextField, '任务标题').first, '我的周报');
+    await tester.ensureVisible(find.text('保存'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+
+    final create =
+        host.calls.where((c) => c.$1 == 'createAutomation').toList();
+    expect(create, hasLength(1));
+    expect(create.single.$2.single, {
+      'title': '我的周报',
+      'prompt': contains('周五回顾'),
+      'cronExpr': '0 16 * * 5',
+    });
+  });
+
+  testWidgets('editing an interval automation re-emits its interval wire',
+      (tester) async {
+    final host = FakeAutomationHost(DeviceStatus.connected, [
+      {
+        'automationId': 'a2',
+        'title': '备份',
+        'prompt': '备份数据库',
+        'interval': 6,
+        'intervalUnit': 'hour',
+        'recurring': false,
+        'maxRuns': 12,
+      },
+    ]);
+    await tester.pumpWidget(wrap(AutomationsPane(session: host)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('编辑定时任务'));
+    await tester.pumpAndSettle();
+
+    // Preset controls reflect the stored rule (每 6 小时).
+    expect(find.textContaining('运行时间：每 6 小时'), findsOneWidget);
   });
 
   testWidgets('scheduled page shows both sections with no devices',

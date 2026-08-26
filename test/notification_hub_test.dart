@@ -39,6 +39,9 @@ class FakeNotifiableSession extends ChangeNotifier
   @override
   Map<String, dynamic> offPeakScope = const {};
 
+  @override
+  Map<String, dynamic> get automationScope => const {'workspacePath': '/repo'};
+
   List<Map<String, dynamic>> automationItems = [];
   List<Map<String, dynamic>> offPeakTasks = [];
 
