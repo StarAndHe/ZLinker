@@ -1,0 +1,31 @@
+name: Register ASC Bundle IDs
+
+on:
+  workflow_dispatch:
+    inputs:
+      identifiers:
+        description: 'Comma-separated bundle identifiers (e.g. org.songsong.qiandazi,org.songsong.lvyoudazi)'
+        required: true
+      platform:
+        description: 'IOS | MAC_OS | UNIVERSAL'
+        required: false
+        default: 'IOS'
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Register bundle IDs via ASC API
+        env:
+          APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
+          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          ASC_IDENTIFIERS: ${{ github.event.inputs.identifiers }}
+          ASC_PLATFORM: ${{ github.event.inputs.platform }}
+        run: |
+          echo "$APPLE_API_KEY_B64" | base64 -d > AuthKey.p8
+          ASC_KEY_PATH=AuthKey.p8 node tool/asc_register_bundle_id.mjs
