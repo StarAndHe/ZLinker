@@ -17,8 +17,10 @@ docs/store/
 │   │                                             description, keywords, what's new)
 │   ├── icon/            app-icon-1024.png       1024×1024, no alpha
 │   └── screenshots/
-│       ├── iphone-6.9/  1290×2796  hero · tasks · conversation · features (en+zh)
-│       └── ipad-13/     2752×2064  dual-pane (en+zh)
+│       ├── iphone-6.9/   1320×2868  full-bleed native captures (en+zh)
+│       ├── iphone-6.7/   1290×2796  same set, App Store 6.7" slot
+│       ├── ipad-13/      2064×2752  dual-pane portrait (en+zh)
+│       └── archive-framed/          pre-2.3.3 framed composites (keep, don't upload)
 └── googleplay/
     ├── copy/            en-US.md · zh-Hans.md   (title, short + full description,
     │                                             release notes)
@@ -35,8 +37,9 @@ docs/store/
 | Asset | Size | Notes |
 | --- | --- | --- |
 | App icon | 1024×1024 | PNG, no alpha/transparency (Apple rounds it) |
-| iPhone 6.9" screenshots | 1290×2796 | Covers the required 6.9"/6.7" slot |
-| iPad 13" screenshots | 2752×2064 | Landscape; optional but recommended |
+| iPhone 6.9" screenshots | 1320×2868 | Full-bleed app captures (Guideline 2.3.3) |
+| iPhone 6.7" screenshots | 1290×2796 | Same set scaled for the 6.7" slot |
+| iPad 13" screenshots | 2064×2752 | Portrait dual-pane capture |
 
 ### Google Play Console
 | Asset | Size | Notes |
@@ -46,8 +49,8 @@ docs/store/
 | Phone screenshots | 1080×2400 | 2–8 per language; min 320px, 16:9-ish |
 | Tablet screenshots | 1920×1200 | Landscape; recommended for tablet listing |
 
-> App Store lets you inherit the 6.9" set for smaller iPhones, so a single
-> 1290×2796 set is enough to publish.
+> App Store lets you inherit the 6.9" set for smaller iPhones; upload both
+> the 6.9" and 6.7" sets when Media Manager shows both slots.
 
 ## Copy
 
@@ -62,6 +65,15 @@ human-facing, annotated versions with per-field character counts.
 
 ## Regenerate the graphics
 
+App Store screenshots — capture on the iOS simulators, then assemble:
+
+```bash
+# capture steps in SCREENSHOTS.md
+python3 tool/make_appstore_screenshots.py
+```
+
+Google Play art, icons and feature graphic:
+
 ```bash
 pip install Pillow
 python3 tool/gen_store_assets.py
@@ -70,18 +82,15 @@ python3 tool/gen_store_assets.py
 Source inputs:
 
 - `assets/icon/icon.png` — 1024 app icon (from `tool/icon_gen.dart`)
-- `docs/screenshots/raw/02-tasks-en.png`, `03-chat-en.png`, `04-dualpane-en.png`
-  — real captures from `integration_test/screenshots_test.dart` (seeded data)
-
-To refresh the underlying screenshots with new seeded data, recapture them
-per [`docs/store/SCREENSHOTS.md`](SCREENSHOTS.md) — they land directly in
-`docs/screenshots/raw/`, then rerun the generator.
+- `docs/screenshots/raw/` — real captures from
+  `integration_test/screenshots_test.dart` (seeded data) — see
+  [`SCREENSHOTS.md`](SCREENSHOTS.md) for the capture steps.
 
 ## Notes
 
-- The device-frame captions are marketing overlays. If a store rejects
-  framed/annotated screenshots for a given slot, upload the unframed captures
-  in `docs/screenshots/` instead (`iphone/` + `play/` are already at store
-  sizes).
+- App Store screenshots are unframed full-bleed captures on purpose: Apple
+  rejected the previous framed/marketing set under Guideline 2.3.3
+  ("screenshots must show the app in use"). The old composites stay in
+  `archive-framed/` for reference only.
 - ZLinker is an independent community tool, not affiliated with Zhipu AI.
   Keep that disclaimer in the store description (already included in the copy).

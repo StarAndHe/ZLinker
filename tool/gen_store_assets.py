@@ -3,12 +3,16 @@
 
 Outputs (under docs/store/):
   appstore/icon/app-icon-1024.png            1024x1024, no alpha
-  appstore/screenshots/iphone-6.9/*.png      1290x2796  (en + zh)
-  appstore/screenshots/ipad-13/*.png         2752x2064  (en + zh)
   googleplay/icon/play-icon-512.png          512x512
   googleplay/feature-graphic/*.png           1024x500   (en + zh)
   googleplay/screenshots/phone/*.png         1080x2400  (en + zh)
   googleplay/screenshots/tablet/*.png        1920x1200  (en + zh)
+
+The App Store screenshot sets are NOT generated here anymore: since the
+2.3.3 rejection they must show the app in use, so they are assembled from
+the native iOS captures by tool/make_appstore_screenshots.py (see
+docs/store/SCREENSHOTS.md). The framed App Store composites this script
+used to emit are archived under appstore/screenshots/archive-framed/.
 
 Source art: assets/icon/icon.png and the real app captures in
 docs/screenshots/. Brand tokens mirror lib/ui/theme.dart (dark #161616,
@@ -512,9 +516,11 @@ def ensure(path):
 
 def main():
     # Real app captures (integration_test/screenshots_test.dart, seeded data).
-    # Portrait captures are 1440x3036, dual-pane 2752x1914 — much sharper
-    # than the old 390x844 web-demo sources. Each locale gets its matching
-    # UI capture so the embedded screenshot text aligns with the caption.
+    # raw/ portrait captures are the native iPhone 1320x2868 shots; raw/
+    # 04-dualpane is the older Android landscape capture (the iPad slot now
+    # uses the native raw-ipad/05-dualpane portrait capture instead). Each
+    # locale gets its matching UI capture so the embedded screenshot text
+    # aligns with the caption.
     def shot(name, lang):
         return os.path.join(SHOTS, "raw", f"{name}-{lang}.png")
 
@@ -523,17 +529,6 @@ def main():
 
     for lang in ("en", "zh"):
         feature_graphic(lang).save(ensure(os.path.join(OUT, f"googleplay/feature-graphic/feature-graphic-{lang}.png")))
-
-    W, H = 1290, 2796
-    for lang in ("en", "zh"):
-        hero_slide(W, H, lang).save(ensure(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/00-hero-{lang}.png")))
-        showcase_portrait(W, H, shot("02-tasks", lang), "tasks", lang).save(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/01-tasks-{lang}.png"))
-        showcase_portrait(W, H, shot("03-chat", lang), "conversation", lang).save(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/02-conversation-{lang}.png"))
-        features_slide(W, H, lang).save(os.path.join(OUT, f"appstore/screenshots/iphone-6.9/03-features-{lang}.png"))
-
-    W, H = 2752, 2064
-    for lang in ("en", "zh"):
-        showcase_landscape(W, H, shot("04-dualpane", lang), "dualpane", lang).save(ensure(os.path.join(OUT, f"appstore/screenshots/ipad-13/01-dualpane-{lang}.png")))
 
     W, H = 1080, 2400
     for lang in ("en", "zh"):

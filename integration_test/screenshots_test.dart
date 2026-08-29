@@ -21,6 +21,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:zlinker/state/device_session.dart';
 import 'package:zlinker/state/device_store.dart';
 import 'package:zlinker/state/scheduled_store.dart';
+import 'package:zlinker/ui/automations_page.dart';
 import 'package:zlinker/ui/chat/chat_page.dart';
 import 'package:zlinker/ui/devices_page.dart';
 import 'package:zlinker/ui/task_list_page.dart';
@@ -54,7 +55,7 @@ final _sessions = _isEn
         {
           'sessionId': 'sess_shot_2',
           'title': 'Deep dive: GitHub description generation',
-          'phase': 'completed',
+          'phase': 'completedSuccess',
           'lastAssistantPreview':
               'Full analysis delivered, three conclusions.',
           'lastActivityAt': _now - 1000 * 60 * 41,
@@ -62,8 +63,8 @@ final _sessions = _isEn
         {
           'sessionId': 'sess_shot_3',
           'title': 'Off-peak: daily build patrol report',
-          'phase': 'queued',
-          'lastAssistantPreview': 'Queued · runs at the next 02:00 idle window',
+          'phase': 'completedSuccess',
+          'lastAssistantPreview': 'Report generated, 4 findings.',
           'lastActivityAt': _now - 1000 * 60 * 60 * 5,
         },
       ]
@@ -79,15 +80,15 @@ final _sessions = _isEn
         {
           'sessionId': 'sess_shot_2',
           'title': '深度解析 GitHub 描述生成',
-          'phase': 'completed',
+          'phase': 'completedSuccess',
           'lastAssistantPreview': '完整分析已输出，共三个结论。',
           'lastActivityAt': _now - 1000 * 60 * 41,
         },
         {
           'sessionId': 'sess_shot_3',
           'title': '闲时任务：每日构建巡检报告',
-          'phase': 'queued',
-          'lastAssistantPreview': '排队中 · 预计 02:00 空闲窗口执行',
+          'phase': 'completedSuccess',
+          'lastAssistantPreview': '巡检报告已生成，共 4 项结论。',
           'lastActivityAt': _now - 1000 * 60 * 60 * 5,
         },
       ];
@@ -95,6 +96,71 @@ final _sessions = _isEn
 final _workspaces = [
   {'workspacePath': '/Users/dev/ZLinker', 'workspaceIdentity': 'ZLinker'},
 ];
+
+/// Seeded server-side automations for the automations page capture.
+final _automations = _isEn
+    ? [
+        {
+          'automationId': 'auto-1',
+          'title': 'Daily build patrol',
+          'prompt': 'Inspect last night\'s build artifacts, summarize failing cases and post the report.',
+          'cronExpr': '0 2 * * *',
+          'enabled': true,
+          'nextRunAt': _now + 1000 * 60 * 60 * 3,
+          'lastRunAt': _now - 1000 * 60 * 60 * 21,
+          'runCount': 42,
+        },
+        {
+          'automationId': 'auto-2',
+          'title': 'Weekly review digest',
+          'prompt': 'Compile finished sessions of the week into a highlights brief.',
+          'cronExpr': '0 16 * * 5',
+          'enabled': true,
+          'nextRunAt': _now + 1000 * 60 * 60 * 30,
+          'lastRunAt': _now - 1000 * 60 * 60 * 24 * 4,
+          'runCount': 12,
+        },
+        {
+          'automationId': 'auto-3',
+          'title': 'Dependency security sweep',
+          'prompt': 'Scan pubspec.lock for advisories and open follow-up tasks.',
+          'cronExpr': '0 9 * * 1',
+          'enabled': false,
+          'lastRunAt': _now - 1000 * 60 * 60 * 24 * 9,
+          'runCount': 3,
+        },
+      ]
+    : [
+        {
+          'automationId': 'auto-1',
+          'title': '每日构建巡检',
+          'prompt': '巡检昨晚的构建产物，汇总失败用例并生成报告。',
+          'cronExpr': '0 2 * * *',
+          'enabled': true,
+          'nextRunAt': _now + 1000 * 60 * 60 * 3,
+          'lastRunAt': _now - 1000 * 60 * 60 * 21,
+          'runCount': 42,
+        },
+        {
+          'automationId': 'auto-2',
+          'title': '每周回顾摘要',
+          'prompt': '把本周完成的会话整理成要点简报。',
+          'cronExpr': '0 16 * * 5',
+          'enabled': true,
+          'nextRunAt': _now + 1000 * 60 * 60 * 30,
+          'lastRunAt': _now - 1000 * 60 * 60 * 24 * 4,
+          'runCount': 12,
+        },
+        {
+          'automationId': 'auto-3',
+          'title': '依赖安全巡检',
+          'prompt': '扫描 pubspec.lock 的安全通告并创建跟进任务。',
+          'cronExpr': '0 9 * * 1',
+          'enabled': false,
+          'lastRunAt': _now - 1000 * 60 * 60 * 24 * 9,
+          'runCount': 3,
+        },
+      ];
 
 final _chatTitle =
     _isEn ? 'ZLinker store copy & screenshots' : 'ZLinker 商店页文案与截图';
@@ -181,6 +247,12 @@ void main() {
       entries: _sessions,
       workspaces: _workspaces,
       chatRows: _chatRows,
+      channelHandler: (channel, method, args) async =>
+          (channel == 'zcode-agent' &&
+                  (method == 'listAllAutomations' ||
+                      method == 'listAutomations'))
+              ? _automations
+              : null,
     );
     final sessionB = FakeDeviceSession(
       deviceId: store.devices[1].id,
@@ -241,8 +313,27 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1500));
     await binding.takeScreenshot('03-chat$_suffix');
 
-    // 4. Tablet dual-pane (runs only when the device surface is ≥768dp wide,
-    // i.e. the emulator has been switched to a tablet profile):
+    // 4. Automations (server-side cron list with seeded items). Prewarm the
+    // automation port so the pane's in-build fetch hits an already-resolved
+    // method instead of racing the capture.
+    final prewarm = await session.automation.list();
+    // ignore: avoid_print
+    print('prewarm automations: ${prewarm.length}');
+    await tester.pumpWidget(_wrap(
+      AutomationsPage(store: store, hub: hub, initialDeviceId: deviceA.id),
+      theme,
+      ui,
+    ));
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+    // ignore: avoid_print
+    print('auto card found: '
+        '${find.text(_isEn ? 'Daily build patrol' : '每日构建巡检').evaluate().length}');
+    await binding.takeScreenshot('04-automations$_suffix');
+
+    // 5. Tablet dual-pane (runs only when the device surface is ≥768dp wide,
+    // i.e. the simulator has a tablet profile):
     // TaskListPage's desktop layout with a task pre-opened in the right pane.
     if (MediaQuery.of(tester.element(find.byType(Scaffold))).size.width >=
         768) {
@@ -259,8 +350,12 @@ void main() {
         theme,
         ui,
       ));
-      await tester.pump(const Duration(milliseconds: 1500));
-      await binding.takeScreenshot('04-dualpane$_suffix');
+      // Repeated short pumps: the pane's conversation subscription lands
+      // between frames, so give the rasterizer several frames to pick it up.
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 300));
+      }
+      await binding.takeScreenshot('05-dualpane$_suffix');
     }
   });
 }
