@@ -115,6 +115,23 @@ String trP(BuildContext context, String key, List<String> args) {
 String relativeTime(BuildContext context, int ms) {
   final diff =
       DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms));
+  // Future timestamps (an automation's 下次运行) read as "in n …".
+  if (diff.isNegative) {
+    final future = -diff;
+    if (future.inMinutes < 60) {
+      return trP(context, 'time.minutesLater', ['${future.inMinutes}']);
+    }
+    if (future.inHours < 24) {
+      return trP(context, 'time.hoursLater', ['${future.inHours}']);
+    }
+    if (future.inDays < 30) {
+      return trP(context, 'time.daysLater', ['${future.inDays}']);
+    }
+    return DateTime.fromMillisecondsSinceEpoch(ms)
+        .toLocal()
+        .toString()
+        .substring(0, 10);
+  }
   if (diff.inMinutes < 1) return tr(context, 'time.justNow');
   if (diff.inHours < 1) {
     return trP(context, 'time.minutesAgo', ['${diff.inMinutes}']);
@@ -209,6 +226,9 @@ const _zh = {
   'time.minutesAgo': '\$0 分钟前',
   'time.hoursAgo': '\$0 小时前',
   'time.daysAgo': '\$0 天前',
+  'time.minutesLater': '\$0 分钟后',
+  'time.hoursLater': '\$0 小时后',
+  'time.daysLater': '\$0 天后',
   'time.short.justNow': '刚刚',
   'time.short.minutes': '\$0分',
   'time.short.hours': '\$0小时',
@@ -792,6 +812,9 @@ const _en = {
   'time.minutesAgo': '\$0 min ago',
   'time.hoursAgo': '\$0 h ago',
   'time.daysAgo': '\$0 d ago',
+  'time.minutesLater': 'in \$0 min',
+  'time.hoursLater': 'in \$0 h',
+  'time.daysLater': 'in \$0 d',
   'time.short.justNow': 'now',
   'time.short.minutes': '\$0m',
   'time.short.hours': '\$0h',
