@@ -561,15 +561,25 @@ class _ChatPageState extends State<ChatPage> {
       List? rows;
       int? firstRowId;
       if (res is Map) {
-        final rowsObj = res['rows'];
+        // Tolerate a few wrapper shapes the server may return and still no
+        // match: some builds nest under `data`/`payload`/`result`.
+        Map<String, dynamic> body = res.cast<String, dynamic>();
+        for (final key in const ['data', 'payload', 'result']) {
+          final inner = body[key];
+          if (inner is Map) {
+            body = inner.cast<String, dynamic>();
+            break;
+          }
+        }
+        final rowsObj = body['rows'];
         if (rowsObj is Map) {
           rows = rowsObj['window'] as List? ?? rowsObj['rows'] as List?;
           firstRowId = (rowsObj['firstRowId'] as num?)?.toInt();
         } else if (rowsObj is List) {
           rows = rowsObj;
         }
-        rows ??= res['items'] as List? ?? res['window'] as List?;
-        firstRowId ??= (res['firstRowId'] as num?)?.toInt();
+        rows ??= body['items'] as List? ?? body['window'] as List?;
+        firstRowId ??= (body['firstRowId'] as num?)?.toInt();
       } else if (res is List) {
         rows = res;
       }
