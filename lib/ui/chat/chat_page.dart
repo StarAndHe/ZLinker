@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
@@ -70,6 +71,12 @@ class _ChatPageState extends State<ChatPage> {
   final ItemScrollController _itemScrollController = ItemScrollController();
   final ItemPositionsListener _itemPositionsListener =
       ItemPositionsListener.create();
+  // Reports ONLY user-driven scroll offset changes (programmatic scrolls
+  // from _followTail/_scrollToBottom are excluded), so we can tell when the
+  // user manually scrolls away from the tail and stop auto-following.
+  final ScrollOffsetListener _scrollOffsetNotifier =
+      ScrollOffsetListener.create(recordProgrammaticScrolls: false);
+  StreamSubscription<double>? _scrollOffsetSub;
   String? _sessionId;
   String? _error;
   bool _sending = false;
@@ -145,6 +152,13 @@ class _ChatPageState extends State<ChatPage> {
       _inputController.text = initial;
     }
     _itemPositionsListener.itemPositions.addListener(_onPositionsChanged);
+    // User-driven scrolls only: on any manual scroll, re-evaluate whether the
+    // user is still at the tail (to stop auto-following while reading history).
+    _scrollOffsetSub = _scrollOffsetNotifier.changes.listen((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _refreshUserPinFromPositions();
+      });
+    });
     if (_sessionId != null) {
       _subscribe();
     }
@@ -173,33 +187,44 @@ class _ChatPageState extends State<ChatPage> {
       }
       if (p.index == 0) hasFirst = true;
     }
-    // "At the tail" strictly means the newest row's bottom edge reached the
-    // viewport bottom. If the user scrolled up to read history, the newest
-    // item's trailing edge is < 0.995, so _stickToBottom is false and incoming
-    // tokens no longer yank the view back down.
-    final nearBottom = last != null && last.itemTrailingEdge >= 0.995;
+    // "At the tail" means the newest row's BOTTOM edge is pinned at the
+    // viewport bottom (trailingEdge ~= 1.0). When the user scrolls up the
+    // newest item moves BELOW the viewport and its trailingEdge becomes > 1,
+    // which is NOT "at bottom". The previous `>= 0.995` wrongly treated that
+    // as still-at-bottom (hiding the FAB and yanking the view back).
+    final nearBottom =
+        last != null && (last.itemTrailingEdge - 1.0).abs() < 0.05;
     _stickToBottom = nearBottom;
-    // User intent: pinned to the tail while at the bottom; once they scroll
-    // far enough that the newest message leaves the viewport top, they are
-    // reading history and must not be yanked back by streaming tokens.
-    if (last != null && last.itemTrailingEdge >= 0.995) {
-      _userPinnedBottom = true;
-    } else if (last != null && last.itemLeadingEdge < 0) {
-      _userPinnedBottom = false;
-    }
-    // Content fits in one screen when the first AND last items are both fully
-    // inside the viewport (leading >= 0 and trailing <= 1). When the user
-    // scrolls up the last item's leading edge goes negative, so allFit is
-    // false and the back-to-latest FAB correctly appears.
-    final allFit =
-        hasFirst && last != null && last.itemLeadingEdge >= 0.0 &&
-            last.itemTrailingEdge <= 1.0;
+    // Content fits in one screen (nothing to scroll) when the first AND last
+    // items are both fully inside the viewport.
+    final allFit = hasFirst &&
+        last != null &&
+        last.itemLeadingEdge >= 0.0 &&
+        last.itemTrailingEdge <= 1.0;
     if (_suppressFab && nearBottom) _suppressFab = false;
     final showFab = !nearBottom && !allFit && !_suppressFab && !_loadingOlder;
     if (showFab != _showLatestFab && mounted) {
       setState(() => _showLatestFab = showFab);
     }
     _syncRailToViewport(positions);
+  }
+
+  /// Re-evaluates the user's pin-to-bottom intent from the latest item
+  /// positions. Called ONLY after a user-driven scroll (via the offset
+  /// notifier), so programmatic follow-scrolls never flip the intent.
+  void _refreshUserPinFromPositions() {
+    final lastIndex = _lastItemIndex;
+    if (lastIndex == null) return;
+    final positions = _itemPositionsListener.itemPositions.value;
+    for (final p in positions) {
+      if (p.index == lastIndex) {
+        final nearBottom = (p.itemTrailingEdge - 1.0).abs() < 0.05;
+        if (nearBottom != _userPinnedBottom) {
+          setState(() => _userPinnedBottom = nearBottom);
+        }
+        break;
+      }
+    }
   }
 
   /// Keeps the rail/arrows highlight aligned with what the user sees: the
@@ -267,6 +292,7 @@ class _ChatPageState extends State<ChatPage> {
     _handle?.close();
     _inputController.dispose();
     _itemPositionsListener.itemPositions.removeListener(_onPositionsChanged);
+    _scrollOffsetSub?.cancel();
     super.dispose();
   }
 
@@ -995,6 +1021,7 @@ class _ChatPageState extends State<ChatPage> {
                               ScrollablePositionedList.builder(
                                 itemScrollController: _itemScrollController,
                                 itemPositionsListener: _itemPositionsListener,
+                                scrollOffsetListener: _scrollOffsetNotifier,
                                 padding:
                                     const EdgeInsets.fromLTRB(16, 8, 16, 8),
                                 itemCount: itemCount,
