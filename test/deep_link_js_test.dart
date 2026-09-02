@@ -18,7 +18,7 @@ void main() {
 
     test('contains the selector contract', () {
       final js = buildDeepLinkJs('s', null);
-      expect(js, contains('li[data-testid], [data-task-item-key]'));
+      expect(js, contains('[data-testid],[data-task-item-key]'));
       expect(js, contains('[data-mobile-active-task="true"]'));
       expect(js, contains('下一步|确认|进入'));
     });

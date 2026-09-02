@@ -12,15 +12,16 @@ import 'ui_settings.dart';
 /// DOM contract for the injected session deep-link, verified against the
 /// official ZCode web remote (2026-08). Keep in one place so a web client
 /// update only touches these selectors:
-/// - task list item: `li[data-testid]` whose testid contains the session
-///   id, or any `[data-task-item-key]` containing it;
+/// - task list item: any element whose `data-*` attribute VALUE contains the
+///   session id (covers data-testid / data-task-item-key / data-session-id
+///   and any future naming), clicking its inner button/link;
 /// - first-screen task picker: clickable `button` whose text contains the
 ///   task title (a "command palette" style picker auto-opens);
 /// - current task marker: `data-mobile-active-task="true"`;
 /// - takeover screen ("已被其他设备接管"): a short-text button matching
 ///   下一步/确认/进入 (or English equivalents).
-const _kDeepLinkTimeout = Duration(seconds: 10);
-const _kDeepLinkPollInterval = Duration(milliseconds: 700);
+const _kDeepLinkTimeout = Duration(seconds: 30);
+const _kDeepLinkPollInterval = Duration(milliseconds: 800);
 
 /// Builds the injected deep-link script. [sessionId] and [title] are
 /// embedded via [jsonEncode] so quotes/newlines cannot break out of the
@@ -51,18 +52,25 @@ String buildDeepLinkJs(String sessionId, String? title) {
   // Already viewing the target task.
   var active = document.querySelector('[data-mobile-active-task="true"]');
   if (active) {
-    var atid = active.getAttribute('data-testid') || '';
-    var akey = active.getAttribute('data-task-item-key') || '';
-    if (atid.indexOf(SID) >= 0 || akey.indexOf(SID) >= 0) return 'already';
+    var hit = false;
+    for (var a = 0; a < active.attributes.length; a++) {
+      var v = active.attributes[a].value || '';
+      if (v.indexOf(SID) >= 0) { hit = true; break; }
+    }
+    if (hit) return 'already';
   }
-  // Main list item whose testid / task-item-key contains the session id.
-  var nodes = document.querySelectorAll('li[data-testid], [data-task-item-key]');
-  for (var j = 0; j < nodes.length; j++) {
-    var n = nodes[j];
-    var tid = n.getAttribute('data-testid') || '';
-    var key = n.getAttribute('data-task-item-key') || '';
-    if (tid.indexOf(SID) >= 0 || key.indexOf(SID) >= 0) {
-      (n.querySelector('button') || n).click();
+  // Any element whose data-* attribute VALUE contains the session id.
+  // Broader than the old li[data-testid] contract: covers renamed keys.
+  var all = document.querySelectorAll('[data-testid],[data-task-item-key],[data-session-id],[data-session],[data-id],[data-key]');
+  for (var j = 0; j < all.length; j++) {
+    var n = all[j];
+    var hit2 = false;
+    for (var a2 = 0; a2 < n.attributes.length; a2++) {
+      var v2 = n.attributes[a2].value || '';
+      if (v2.indexOf(SID) >= 0) { hit2 = true; break; }
+    }
+    if (hit2) {
+      (n.querySelector('button, a, [role="button"]') || n).click();
       return 'navigated';
     }
   }
