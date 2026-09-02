@@ -154,25 +154,30 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   /// Called on every scroll. ScrollablePositionedList only reports the items
-  /// it has built, so "at the tail" is inferred from the last built item's
-  /// trailing edge being within a small margin of the viewport bottom.
+  /// it has built, so "at the tail" is inferred from the last built item.
   void _onPositionsChanged() {
     final lastIndex = _lastItemIndex;
     if (lastIndex == null) return;
     final positions = _itemPositionsListener.itemPositions.value;
     ItemPosition? last;
+    var hasFirst = false;
     for (final p in positions) {
       if (p.index == lastIndex) {
         last = p;
-        break;
       }
+      if (p.index == 0) hasFirst = true;
     }
-    // If the last item isn't built at all we're far from the tail. When its
-    // trailing edge reaches ~1.0 (the viewport bottom) we are near the tail.
+    // "At the tail" strictly means the newest row's bottom edge reached the
+    // viewport bottom. If the user scrolled up to read history, the newest
+    // item's trailing edge is < 0.995, so _stickToBottom is false and incoming
+    // tokens no longer yank the view back down.
     final nearBottom = last != null && last.itemTrailingEdge >= 0.995;
     _stickToBottom = nearBottom;
+    // If the whole conversation fits in one screen there is nothing to scroll
+    // to, so the back-to-latest FAB is unnecessary.
+    final allFit = hasFirst && last != null && last.itemTrailingEdge <= 1.0;
     if (_suppressFab && nearBottom) _suppressFab = false;
-    final showFab = !nearBottom && !_suppressFab && !_loadingOlder;
+    final showFab = !nearBottom && !allFit && !_suppressFab && !_loadingOlder;
     if (showFab != _showLatestFab && mounted) {
       setState(() => _showLatestFab = showFab);
     }
@@ -1302,7 +1307,11 @@ class _ChatPageState extends State<ChatPage> {
       index: lastIndex,
       duration: const Duration(milliseconds: 200),
       curve: Curves.easeOut,
-      alignment: 1.0, // bottom of the visible viewport (the latest message)
+      // align the LAST item's leading edge to the viewport TOP (not bottom).
+      // With alignment:1.0 the item's top goes to the viewport BOTTOM and the
+      // final message falls off-screen — the bug where "back to latest" only
+      // showed the user's last message instead of the final assistant row.
+      alignment: 0.0,
     );
     // Once the scroll completes the positions listener clears suppression;
     // also clear it here for the already-at-tail case.
@@ -1318,10 +1327,12 @@ class _ChatPageState extends State<ChatPage> {
   ///  - arrows mode: floating ↑/↓ pair shown on demand;
   /// both share the "back to latest" FAB while scrolled away from bottom.
   Widget _userRailStack(Widget child) {
-    final hasAnchors = _userAnchors.isNotEmpty;
-    final railOpen = _navMode == UserNavMode.rail && _railVisible && hasAnchors;
-    final arrowsOpen =
-        _navMode == UserNavMode.arrows && _arrowsVisible && hasAnchors;
+    // Show the chrome whenever the user asked for it (rail toggled / arrows
+    // toggled), even if there are no user-message anchors yet — otherwise a
+    // conversation whose loaded tail has no userInput would hide the controls
+    // entirely and look "broken". With no anchors the buttons are disabled.
+    final railOpen = _navMode == UserNavMode.rail && _railVisible;
+    final arrowsOpen = _navMode == UserNavMode.arrows && _arrowsVisible;
     if (!railOpen && !arrowsOpen && !_showLatestFab) return child;
     return Stack(
       children: [
