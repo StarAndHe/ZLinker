@@ -9,20 +9,37 @@ import '../ui_settings.dart';
 /// Markdown renderer matching the official web client look: selectable
 /// body text, inline code on a pill background, fenced code blocks with a
 /// language tag and copy button in a self-drawn header bar.
+///
+/// While [streaming] the markdown parser is skipped and the raw text is
+/// painted directly. Re-parsing the whole markdown on every token makes a
+/// growing reply janky and batchy; plain-text rendering is O(text) and lets
+/// tokens appear one by one like the official web client. The full markdown
+/// layout replaces it the moment the row leaves the streaming state.
 class ZLinkerMarkdown extends StatelessWidget {
   final String data;
   final bool selectable;
   final double fontSize;
+  final bool streaming;
 
   const ZLinkerMarkdown(
     this.data, {
     super.key,
     this.selectable = true,
     this.fontSize = 14,
+    this.streaming = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    if (streaming) {
+      // Lightweight streaming paint: no markdown parsing, so tokens render
+      // immediately and smoothly like the official web client.
+      return SelectableText(
+        data,
+        style: TextStyle(
+            fontSize: fontSize, height: 1.6, color: ZInk.solid(context)),
+      );
+    }
     final codeFont = fontSize - 1.5;
     final styleSheet = MarkdownStyleSheet(
       p: TextStyle(

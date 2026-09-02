@@ -1,10 +1,10 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
-import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../protocol/conversation.dart';
 import '../../state/device_session.dart';
@@ -65,18 +65,12 @@ class _PendingFile {
 class _ChatPageState extends State<ChatPage> {
   ChatHandle? _handle;
   final _inputController = TextEditingController();
-  // Positioned-list controller: needed to jump to a specific user message
-  // even when it is not yet built (lazy rendering). A plain ScrollController
-  // cannot address an index that exists outside the viewport.
-  final ItemScrollController _itemScrollController = ItemScrollController();
-  final ItemPositionsListener _itemPositionsListener =
-      ItemPositionsListener.create();
-  // Reports ONLY user-driven scroll offset changes (programmatic scrolls
-  // from _followTail/_scrollToBottom are excluded), so we can tell when the
-  // user manually scrolls away from the tail and stop auto-following.
-  final ScrollOffsetListener _scrollOffsetNotifier =
-      ScrollOffsetListener.create(recordProgrammaticScrolls: false);
-  StreamSubscription<double>? _scrollOffsetSub;
+  // Standard ListView scroll controller: content appended during streaming
+  // never moves the viewport (offset is relative to the content top), which
+  // is exactly the stable free-browsing behavior a chat needs. Scrollable
+  // PositionedList's center-anchored viewport kept re-correcting the offset
+  // while tokens arrived (screen jumping), so we use the plain controller.
+  final ScrollController _scrollController = ScrollController();
   String? _sessionId;
   String? _error;
   bool _sending = false;
@@ -151,17 +145,11 @@ class _ChatPageState extends State<ChatPage> {
     if (initial != null && initial.isNotEmpty) {
       _inputController.text = initial;
     }
-    _itemPositionsListener.itemPositions.addListener(_onPositionsChanged);
-    // User-driven scrolls only: on any manual scroll, re-evaluate whether the
-    // user is still at the tail (to stop auto-following while reading history).
-    _scrollOffsetSub = _scrollOffsetNotifier.changes.listen((_) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _refreshUserPinFromPositions();
-      });
-    });
+    _scrollController.addListener(_onScroll);
     if (_sessionId != null) {
       _subscribe();
     }
+    _loadDraft();
     _loadPrep();
     _inputController.addListener(() {
       final text = _inputController.text;
@@ -173,84 +161,57 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
-  /// Called on every scroll. ScrollablePositionedList only reports the items
-  /// it has built, so "at the tail" is inferred from the last built item.
-  void _onPositionsChanged() {
-    final lastIndex = _lastItemIndex;
-    if (lastIndex == null) return;
-    final positions = _itemPositionsListener.itemPositions.value;
-    ItemPosition? last;
-    var hasFirst = false;
-    for (final p in positions) {
-      if (p.index == lastIndex) {
-        last = p;
+  /// Called on every scroll position change. Uses the plain ScrollController,
+  /// so "at the bottom" is simply `pixels == maxScrollExtent` — exact and
+  /// immune to the positioned-list edge math that caused all the previous
+  /// direction bugs.
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    final max = pos.maxScrollExtent;
+    final atBottom = max <= 0.0 || (max - pos.pixels).abs() < 1.0;
+    _stickToBottom = atBottom;
+    // User intent: dragging UP (ScrollDirection.forward in a vertical list)
+    // means the user left the tail — lock free-browsing so streaming never
+    // moves the view. Dragging DOWN all the way to the very bottom re-arms
+    // auto-follow.
+    if (pos.userScrollDirection == ScrollDirection.forward) {
+      if (_userPinnedBottom && mounted) {
+        setState(() => _userPinnedBottom = false);
       }
-      if (p.index == 0) hasFirst = true;
+    } else if (pos.userScrollDirection == ScrollDirection.reverse && atBottom) {
+      if (!_userPinnedBottom && mounted) {
+        setState(() => _userPinnedBottom = true);
+      }
     }
-    // "At the tail" means the newest row's BOTTOM edge is pinned at the
-    // viewport bottom (trailingEdge ~= 1.0). When the user scrolls up the
-    // newest item moves BELOW the viewport and its trailingEdge becomes > 1,
-    // which is NOT "at bottom". The previous `>= 0.995` wrongly treated that
-    // as still-at-bottom (hiding the FAB and yanking the view back).
-    final nearBottom =
-        last != null && (last.itemTrailingEdge - 1.0).abs() < 0.05;
-    _stickToBottom = nearBottom;
-    // Content fits in one screen (nothing to scroll) when the first AND last
-    // items are both fully inside the viewport.
-    final allFit = hasFirst &&
-        last != null &&
-        last.itemLeadingEdge >= 0.0 &&
-        last.itemTrailingEdge <= 1.0;
-    if (_suppressFab && nearBottom) _suppressFab = false;
-    final showFab = !nearBottom && !allFit && !_suppressFab && !_loadingOlder;
+    if (_suppressFab && atBottom) _suppressFab = false;
+    final showFab = max > 0.0 && !atBottom && !_suppressFab && !_loadingOlder;
     if (showFab != _showLatestFab && mounted) {
       setState(() => _showLatestFab = showFab);
     }
-    _syncRailToViewport(positions);
-  }
-
-  /// Re-evaluates the user's pin-to-bottom intent from the latest item
-  /// positions. Called ONLY after a user-driven scroll (via the offset
-  /// notifier), so programmatic follow-scrolls never flip the intent.
-  void _refreshUserPinFromPositions() {
-    final lastIndex = _lastItemIndex;
-    if (lastIndex == null) return;
-    final positions = _itemPositionsListener.itemPositions.value;
-    for (final p in positions) {
-      if (p.index == lastIndex) {
-        final nearBottom = (p.itemTrailingEdge - 1.0).abs() < 0.05;
-        if (nearBottom != _userPinnedBottom) {
-          setState(() => _userPinnedBottom = nearBottom);
-        }
-        break;
-      }
-    }
+    _syncRailToViewport();
   }
 
   /// Keeps the rail/arrows highlight aligned with what the user sees: the
   /// highlighted anchor is the user message nearest the top of the viewport.
   /// Scrolling back to the tail clears the highlight (no user anchor there).
-  void _syncRailToViewport(Iterable<ItemPosition> positions) {
-    if (_anchorItemIndexes.isEmpty) return;
-    // Find the user message item nearest the viewport top.
+  void _syncRailToViewport() {
+    if (_userAnchors.isEmpty) return;
+    if (!_scrollController.hasClients) return;
+    // Find the user anchor whose top edge is closest above-or-at the
+    // viewport top. Only anchors that are actually built have a context.
     var best = -1;
-    double bestEdge = double.nan;
-    for (var a = 0; a < _anchorItemIndexes.length; a++) {
-      final itemIndex = _anchorItemIndexes[a];
-      ItemPosition? p;
-      for (final pos in positions) {
-        if (pos.index == itemIndex) {
-          p = pos;
-          break;
-        }
-      }
-      if (p == null) continue;
-      // Only consider anchors that are at/below the top of the viewport.
-      final edge = p.itemLeadingEdge;
-      if (edge < 0) continue;
-      if (best < 0 || edge < bestEdge) {
+    double bestDist = double.infinity;
+    for (var a = 0; a < _userAnchors.length; a++) {
+      final ctx = _turnKeys[_userAnchors[a].rowId]?.currentContext;
+      if (ctx == null) continue;
+      final box = ctx.findRenderObject() as RenderBox?;
+      if (box == null || !box.hasSize || !box.attached) continue;
+      final top = box.localToGlobal(Offset.zero).dy;
+      // Prefer the anchor closest to the top of the screen.
+      if (top.abs() < bestDist) {
+        bestDist = top.abs();
         best = a;
-        bestEdge = edge;
       }
     }
     if (best != _railIndex && mounted) {
@@ -262,14 +223,92 @@ class _ChatPageState extends State<ChatPage> {
   /// user WANTS to stay pinned (they are sitting at the bottom). Once they
   /// scroll up to read history, _userPinnedBottom goes false and incoming
   /// tokens no longer yank the view back down.
+  ///
+  /// The jump is deferred to after the frame so the newly arrived rows are
+  /// laid out first (maxScrollExtent updated), then the view is snapped to
+  /// the true bottom instantly. Scrolling BEFORE layout used the stale
+  /// extent, so each token left the view one step behind and jittered.
   void _followTail() {
     if (!_userPinnedBottom) return;
-    _scrollToBottom();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_userPinnedBottom) return;
+      _scrollToBottom(duration: Duration.zero);
+    });
+  }
+
+  /// Queue item "edit" action: pulls the queued text back into the composer
+  /// for continued editing and removes it from the queue (mirrors the
+  /// official web remote behavior).
+  void _editQueueItemInComposer(String text, String queueItemId) {
+    final state = _state;
+    final sessionId = _sessionId;
+    if (state == null || sessionId == null) return;
+    _inputController.text = text;
+    _inputController.selection =
+        TextSelection.collapsed(offset: text.length);
+    state.optimisticRemoveQueueItem(queueItemId);
+    widget.gateway.deleteQueueItem(sessionId, queueItemId);
+    // Restore any draft that may exist so the edited text survives leaving.
+    _saveDraft();
   }
 
   /// Which user-message navigation chrome the user picked in settings.
   UserNavMode get _navMode =>
       UiSettingsProvider.of(context)?.userNavMode ?? UserNavMode.rail;
+
+  // ------------------------------------------------------------ draft
+
+  /// Persistence key for the unsent composer text, kept per session (or
+  /// 'draft' while the session does not exist yet).
+  String get _draftKey =>
+      'zlinker_chat_draft_${_sessionId ?? 'draft'}';
+
+  /// Restores the unsent composer text left behind from a previous visit.
+  Future<void> _loadDraft() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final text = prefs.getString(_draftKey);
+      if (text != null &&
+          text.trim().isNotEmpty &&
+          _inputController.text.isEmpty &&
+          mounted) {
+        _inputController.text = text;
+        _inputController.selection =
+            TextSelection.collapsed(offset: text.length);
+      }
+    } catch (_) {}
+  }
+
+  /// Saves the unsent composer text so leaving the page never loses it.
+  /// An empty text removes the draft. Fire-and-forget: SharedPreferences is
+  /// a singleton, so the write still lands after dispose.
+  void _saveDraft() {
+    try {
+      final key = _draftKey;
+      final text = _inputController.text.trim();
+      SharedPreferences.getInstance().then((prefs) {
+        if (text.isEmpty) {
+          prefs.remove(key);
+        } else {
+          prefs.setString(key, text);
+        }
+      });
+    } catch (_) {}
+  }
+
+  /// Clears the saved draft after a successful send.
+  void _clearDraft() {
+    try {
+      final key = _draftKey;
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.remove(key);
+        // A draft-mode session also may have been stored under 'draft'.
+        if (key != 'zlinker_chat_draft_draft') {
+          prefs.remove('zlinker_chat_draft_draft');
+        }
+      });
+    } catch (_) {}
+  }
 
   Future<void> _loadPrep() async {
     try {
@@ -289,10 +328,11 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   void dispose() {
+    _saveDraft();
     _handle?.close();
     _inputController.dispose();
-    _itemPositionsListener.itemPositions.removeListener(_onPositionsChanged);
-    _scrollOffsetSub?.cancel();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -515,6 +555,7 @@ class _ChatPageState extends State<ChatPage> {
         return;
       }
       _inputController.clear();
+      _clearDraft();
       setState(() => _pendingFiles.clear());
     } catch (e) {
       if (mounted) _toast(trP(context, 'chat.send.failed', ['$e']));
@@ -1018,10 +1059,8 @@ class _ChatPageState extends State<ChatPage> {
                           }
                           return _userRailStack(
                             _contentCol(
-                              ScrollablePositionedList.builder(
-                                itemScrollController: _itemScrollController,
-                                itemPositionsListener: _itemPositionsListener,
-                                scrollOffsetListener: _scrollOffsetNotifier,
+                              ListView.builder(
+                                controller: _scrollController,
                                 padding:
                                     const EdgeInsets.fromLTRB(16, 8, 16, 8),
                                 itemCount: itemCount,
@@ -1101,7 +1140,9 @@ class _ChatPageState extends State<ChatPage> {
                   _GoalBanner(state: state),
                   _BackgroundWorksBar(state: state),
                   _QueueBar(
-                      state: state, gateway: widget.gateway),
+                      state: state,
+                      gateway: widget.gateway,
+                      onEditToComposer: _editQueueItemInComposer),
                   _PendingInteractions(
                       state: state, gateway: widget.gateway),
                 ],
@@ -1293,19 +1334,45 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _scrollToUserMessage(int index) async {
     final anchors = _userAnchors;
     if (anchors.isEmpty || index < 0 || index >= anchors.length) return;
-    final itemIndex = index < _anchorItemIndexes.length
-        ? _anchorItemIndexes[index]
-        : anchors.length; // fallback: conservative item index
     setState(() {
       _railIndex = index;
       _stickToBottom = false;
+      _userPinnedBottom = false;
     });
-    await _itemScrollController.scrollTo(
-      index: itemIndex,
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOut,
-      alignment: 0.0, // top of the visible viewport
-    );
+    final key = _turnKeys[anchors[index].rowId];
+    var ctx = key?.currentContext;
+    if (ctx != null) {
+      await Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+        alignment: 0.0, // top of the visible viewport
+      );
+      return;
+    }
+    // Lazy list: the target is not built yet. Estimate its offset by linear
+    // interpolation (itemIndex / totalItems * maxScrollExtent) so it enters
+    // the cache extent, then refine with ensureVisible on the next frame.
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    final total = pos.maxScrollExtent;
+    final itemCount = (_lastItemIndex ?? 0) + 1;
+    final estimated = total <= 0 || itemCount <= 0
+        ? 0.0
+        : (index / itemCount) * total;
+    _scrollController.jumpTo(estimated.clamp(0.0, total));
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final ctx2 = key?.currentContext;
+      if (ctx2 != null) {
+        await Scrollable.ensureVisible(
+          ctx2,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+          alignment: 0.0,
+        );
+      }
+    });
   }
 
   /// App-bar entry: in rail mode toggles the rail; in arrows mode toggles
@@ -1348,30 +1415,37 @@ class _ChatPageState extends State<ChatPage> {
   /// Scrolls the conversation back to the newest message.
   void _jumpToLatest() => _scrollToBottom(force: true);
 
-  Future<void> _scrollToBottom({bool force = false}) async {
+  Future<void> _scrollToBottom(
+      {bool force = false,
+      Duration duration = const Duration(milliseconds: 250)}) async {
     setState(() {
       _stickToBottom = true;
       _userPinnedBottom = true;
       _suppressFab = true;
       _showLatestFab = false;
     });
-    final lastIndex = _lastItemIndex;
-    if (lastIndex == null || lastIndex < 0) {
-      if (mounted) setState(() => _suppressFab = false);
+    if (!_scrollController.hasClients) {
+      // The list is not built yet (e.g. right after subscribe): retry once
+      // the frame lays it out, so opening a chat still lands at the bottom
+      // and _suppressFab cannot stay stuck true (which would hide the FAB
+      // forever).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scrollToBottom(force: force, duration: duration);
+      });
       return;
     }
-    await _itemScrollController.scrollTo(
-      index: lastIndex,
-      duration: const Duration(milliseconds: 200),
-      curve: Curves.easeOut,
-      // align the LAST item's leading edge to the viewport TOP (not bottom).
-      // With alignment:1.0 the item's top goes to the viewport BOTTOM and the
-      // final message falls off-screen — the bug where "back to latest" only
-      // showed the user's last message instead of the final assistant row.
-      alignment: 0.0,
-    );
-    // Once the scroll completes the positions listener clears suppression;
-    // also clear it here for the already-at-tail case.
+    final max = _scrollController.position.maxScrollExtent;
+    if (duration == Duration.zero) {
+      _scrollController.jumpTo(max);
+    } else {
+      await _scrollController.animateTo(
+        max,
+        duration: duration,
+        curve: Curves.easeOut,
+      );
+    }
+    // Clear the suppression so a later manual scroll can surface the FAB
+    // again (the scroll listener also clears it once the tail is reached).
     if (mounted && _suppressFab) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _suppressFab) setState(() => _suppressFab = false);
@@ -2380,14 +2454,39 @@ class _AttachmentViewState extends State<_AttachmentView> {
             child: CircularProgressIndicator(strokeWidth: 1.5)),
       );
     }
+    // Uniform square thumbnail (every user image shows at the same small
+    // size); tapping opens the full-size viewer.
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: Image.memory(
-          _imageBytes!,
-          width: 220,
-          fit: BoxFit.cover,
+      child: GestureDetector(
+        onTap: _showFullScreen,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: SizedBox(
+            width: 96,
+            height: 96,
+            child: Image.memory(_imageBytes!, fit: BoxFit.cover),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Full-screen viewer for the tapped image (pinch-zoom enabled; tap to
+  /// dismiss). Reuses the bytes already fetched for the thumbnail.
+  void _showFullScreen() {
+    final bytes = _imageBytes;
+    if (bytes == null) return;
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.9),
+      builder: (dialogCtx) => GestureDetector(
+        onTap: () => Navigator.of(dialogCtx).pop(),
+        child: Center(
+          child: InteractiveViewer(
+            maxScale: 5.0,
+            child: Image.memory(bytes),
+          ),
         ),
       ),
     );
@@ -2436,7 +2535,7 @@ class _AssistantBubble extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ZLinkerMarkdown(text),
+          ZLinkerMarkdown(text, streaming: streaming),
           if (showFeedback)
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -3316,8 +3415,13 @@ class _BackgroundWorksBar extends StatelessWidget {
 class _QueueBar extends StatelessWidget {
   final ConversationState state;
   final ChatGateway gateway;
+  final void Function(String text, String queueItemId) onEditToComposer;
 
-  const _QueueBar({required this.state, required this.gateway});
+  const _QueueBar({
+    required this.state,
+    required this.gateway,
+    required this.onEditToComposer,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -3435,47 +3539,15 @@ class _QueueBar extends StatelessWidget {
     );
   }
 
-  Future<void> _edit(BuildContext context, String sessionId,
-      Map<String, dynamic> item) async {
-    final controller =
-        TextEditingController(text: '${item['text'] ?? ''}');
-    final text = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(tr(context, 'chat.queue.edit.title')),
-        content: TextField(
-          controller: controller,
-          maxLines: 4,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text(tr(context, 'devices.add.cancel'))),
-          FilledButton(
-              onPressed: () =>
-                  Navigator.pop(context, controller.text.trim()),
-              child: Text(tr(context, 'devices.rename.save'))),
-        ],
-      ),
-    );
-    controller.dispose();
-    if (text == null || text.isEmpty) return;
-    // Optimistic text update; server queue patch confirms.
-    final q = state.queue;
-    if (q != null && q['items'] is List) {
-      final items = [
-        for (final i in q['items'] as List)
-          if (i is Map && '${i['queueItemId']}' == '${item['queueItemId']}')
-            {...i, 'text': text}
-          else
-            i,
-      ];
-      state.optimisticPatch({
-        'queue': {...q, 'items': items},
-      });
-    }
-    await gateway.editQueueItem(sessionId, '${item['queueItemId']}', text);
+  /// Queue item "edit": pulls the text back into the composer (via the
+  /// callback) instead of editing inside a dialog — mirroring the official
+  /// web remote, where the edit icon refills the input box for continued
+  /// editing and removes the queued item.
+  void _edit(BuildContext context, String sessionId,
+      Map<String, dynamic> item) {
+    final text = '${item['text'] ?? ''}';
+    final id = '${item['queueItemId']}';
+    onEditToComposer(text, id);
   }
 }
 
