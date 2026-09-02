@@ -176,11 +176,45 @@ class _ChatPageState extends State<ChatPage> {
     if (showFab != _showLatestFab && mounted) {
       setState(() => _showLatestFab = showFab);
     }
+    _syncRailToViewport(positions);
   }
 
-  /// Scroll-listener bridge: stream updates keep following while the user is
-  /// near the tail, without yanking someone reading history.
+  /// Keeps the rail/arrows highlight aligned with what the user sees: the
+  /// highlighted anchor is the user message nearest the top of the viewport.
+  /// Scrolling back to the tail clears the highlight (no user anchor there).
+  void _syncRailToViewport(Iterable<ItemPosition> positions) {
+    if (_anchorItemIndexes.isEmpty) return;
+    // Find the user message item nearest the viewport top.
+    var best = -1;
+    double bestEdge = double.nan;
+    for (var a = 0; a < _anchorItemIndexes.length; a++) {
+      final itemIndex = _anchorItemIndexes[a];
+      ItemPosition? p;
+      for (final pos in positions) {
+        if (pos.index == itemIndex) {
+          p = pos;
+          break;
+        }
+      }
+      if (p == null) continue;
+      // Only consider anchors that are at/below the top of the viewport.
+      final edge = p.itemLeadingEdge;
+      if (edge < 0) continue;
+      if (best < 0 || edge < bestEdge) {
+        best = a;
+        bestEdge = edge;
+      }
+    }
+    if (best != _railIndex && mounted) {
+      setState(() => _railIndex = best < 0 ? null : best);
+    }
+  }
+
+  /// Scroll-listener bridge: stream updates follow the tail ONLY while the
+  /// user is already at/near the bottom. If the user scrolled up to read
+  /// history, incoming tokens must not yank them back down.
   void _followTail() {
+    if (!_stickToBottom) return;
     _scrollToBottom();
   }
 

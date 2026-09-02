@@ -72,6 +72,22 @@ class _TaskListPageState extends State<TaskListPage> {
     _paneTitle = widget.initialPaneTitle;
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Restore the user's last task-list grouping choice (workspace/timeline)
+    // so leaving the page doesn't reset it to the workspace default.
+    if (!_groupByRestored) {
+      _groupByRestored = true;
+      final ui = UiSettingsProvider.of(context);
+      if (ui != null && _groupBy == 'workspace') {
+        _groupBy = ui.taskGroupBy.isEmpty ? 'workspace' : ui.taskGroupBy;
+      }
+    }
+  }
+
+  bool _groupByRestored = false;
+
   /// Dual-pane desktop selection (≥768px): the task opened in the right
   /// pane instead of a pushed route.
   String? _paneSessionId;
@@ -823,7 +839,11 @@ class _TaskListPageState extends State<TaskListPage> {
             ),
             RadioGroup<String>(
               groupValue: _groupBy,
-              onChanged: (v) => setState(() => _groupBy = v ?? _groupBy),
+              onChanged: (v) {
+                final value = v ?? _groupBy;
+                setState(() => _groupBy = value);
+                UiSettingsProvider.of(context)?.setTaskGroupBy(value);
+              },
               child: Column(
                 children: [
                   for (final (value, label) in [

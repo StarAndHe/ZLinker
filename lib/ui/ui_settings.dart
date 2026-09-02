@@ -14,6 +14,7 @@ class UiSettings extends ChangeNotifier {
   static const _notifyOffPeakKey = 'zlinker_notify_offpeak';
   static const _notifyAutoKey = 'zlinker_notify_auto';
   static const _userNavKey = 'zlinker_user_nav_mode';
+  static const _groupByKey = 'zlinker_task_group_by';
 
   String locale = 'zh-CN';
   bool nativeListEnabled = true;
@@ -22,6 +23,10 @@ class UiSettings extends ChangeNotifier {
   bool notifyOffPeakEnabled = true;
   bool notifyAutoEnabled = true;
   UserNavMode userNavMode = UserNavMode.rail;
+
+  /// Task-list grouping: 'workspace' (default) or 'timeline'. Persisted so
+  /// the user's choice survives leaving the task list.
+  String taskGroupBy = 'workspace';
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -33,6 +38,7 @@ class UiSettings extends ChangeNotifier {
     notifyAutoEnabled = prefs.getBool(_notifyAutoKey) ?? true;
     userNavMode = UserNavMode.values.asNameMap()[prefs.getString(_userNavKey)] ??
         UserNavMode.rail;
+    taskGroupBy = prefs.getString(_groupByKey) ?? 'workspace';
     notifyListeners();
   }
 
@@ -83,6 +89,13 @@ class UiSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_userNavKey, value.name);
+  }
+
+  Future<void> setTaskGroupBy(String value) async {
+    taskGroupBy = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_groupByKey, value);
   }
 }
 
