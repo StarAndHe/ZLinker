@@ -234,11 +234,11 @@ class FakeChatGateway extends ChangeNotifier implements ChatGateway {
       Future.value(_rec('applyFileRewind', [sessionId, target]));
 }
 
-Widget wrap(Widget child) => MaterialApp(
+Widget wrap(Widget child, {UiSettings? settings}) => MaterialApp(
       theme: buildDarkTheme(),
       darkTheme: buildDarkTheme(),
-      builder: (context, child) =>
-          UiSettingsProvider(settings: UiSettings(), child: child!),
+      builder: (context, child) => UiSettingsProvider(
+          settings: settings ?? UiSettings(), child: child!),
       home: child,
     );
 
@@ -609,5 +609,109 @@ void main() {
     await tester.tap(find.byTooltip('更多'));
     await tester.pumpAndSettle();
     expect(find.text('取消置顶任务'), findsOneWidget);
+  });
+
+  testWidgets('user-message rail: entry toggles markers, long-press preview',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    final gateway = FakeChatGateway();
+    await tester.pumpWidget(wrap(
+        ChatPage(gateway: gateway, sessionId: 's1', title: 't')));
+    await tester.pump();
+    gateway.feedSnapshot([
+      {'rowId': 1, 'kind': 'userInput', 'text': '第一句话'},
+      {'rowId': 2, 'kind': 'assistantText', 'text': '回复', 'state': 'done'},
+      {'rowId': 3, 'kind': 'userInput', 'text': '第二部分内容，用于测试30字截断效果'},
+      {'rowId': 4, 'kind': 'assistantText', 'text': '又一段回复', 'state': 'done'},
+    ]);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Rail is hidden by default; tapping the entry icon reveals it.
+    expect(find.byType(AnimatedContainer), findsNothing);
+    await tester.tap(find.byTooltip('用户消息导航'));
+    await tester.pumpAndSettle();
+    // Two user messages -> two rail markers (AnimatedContainer). Markers are
+    // the only AnimatedContainer in the rail; assistant text adds none.
+    expect(find.byType(AnimatedContainer), findsWidgets);
+  });
+
+  testWidgets('arrows mode: entry reveals ↑/↓, tapping walks user messages',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    final ui = UiSettings()..userNavMode = UserNavMode.arrows;
+    final gateway = FakeChatGateway();
+    await tester.pumpWidget(wrap(
+        ChatPage(gateway: gateway, sessionId: 's1', title: 't'),
+        settings: ui));
+    await tester.pump();
+    gateway.feedSnapshot([
+      {'rowId': 1, 'kind': 'userInput', 'text': '第一个问题'},
+      {'rowId': 2, 'kind': 'assistantText', 'text': '答复一', 'state': 'done'},
+      {'rowId': 3, 'kind': 'userInput', 'text': '第二个问题'},
+      {'rowId': 4, 'kind': 'assistantText', 'text': '答复二', 'state': 'done'},
+    ]);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    // Arrows are hidden until the app-bar entry is tapped.
+    expect(find.byTooltip('上一条用户消息'), findsNothing);
+    await tester.tap(find.byTooltip('用户消息导航'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('上一条用户消息'), findsOneWidget);
+    expect(find.byTooltip('下一条用户消息'), findsOneWidget);
+
+    // ↑ from the tail lands on the newest user message ("第二个问题").
+    await tester.tap(find.byTooltip('上一条用户消息'));
+    await tester.pumpAndSettle();
+    expect(ui.userNavMode, UserNavMode.arrows);
+    // ↑ again walks to the previous user message ("第一个问题").
+    await tester.tap(find.byTooltip('上一条用户消息'));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('back-to-latest FAB appears off the tail and jumps to bottom',
+      (tester) async {
+    tester.view.devicePixelRatio = 1.0;
+    tester.view.physicalSize = const Size(390, 844);
+    addTearDown(tester.view.reset);
+    final gateway = FakeChatGateway();
+    await tester.pumpWidget(wrap(
+        ChatPage(gateway: gateway, sessionId: 's1', title: 't')));
+    await tester.pump();
+    // Feed enough long content to make the list scrollable.
+    gateway.feedSnapshot([
+      for (var i = 0; i < 30; i++) ...[
+        {'rowId': i * 2 + 1, 'kind': 'userInput', 'text': '第${i}个长问题 ${'很长很长的内容' * 8}'},
+        {
+          'rowId': i * 2 + 2,
+          'kind': 'assistantText',
+          'text': '答复 ${'内容' * 50}',
+          'state': 'done'
+        },
+      ],
+    ]);
+    await tester.pump();
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Scroll far up so the tail is out of view; the FAB should appear.
+    await tester.flingFrom(
+        const Offset(200, 450), const Offset(0, 2000), 3000);
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.arrow_downward), findsOneWidget);
+    // The newest user message is no longer visible up here.
+    expect(find.textContaining('第29个长问题'), findsNothing);
+
+    // Tapping the FAB scrolls back to the latest content and hides it.
+    await tester.tap(find.byIcon(Icons.arrow_downward), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.textContaining('第29个长问题'), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_downward), findsNothing);
   });
 }

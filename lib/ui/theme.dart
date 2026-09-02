@@ -71,6 +71,12 @@ class ZInk {
   static Color tile(BuildContext c) =>
       _dark(c) ? ZColors.darkSecondary : ZColors.lightSecondary;
 
+  /// User bubble surface (official mobile parity): dark ≈ #262626, light
+  /// ≈ #E6E6E6. Kept semantic so both themes hover consistently without
+  /// hard-coding hex in the chat widget.
+  static Color userBubble(BuildContext c) =>
+      _dark(c) ? ZColors.neutral800 : ZColors.lightSecondary;
+
   /// 1px hairline borders around tiles.
   static Color hairline(BuildContext c) => _dark(c)
       ? const Color(0x14FFFFFF)

@@ -167,6 +167,53 @@ class _SettingsPageState extends State<SettingsPage> {
               value: ui.nativeListEnabled,
               onChanged: (v) => ui.setNativeListEnabled(v),
             ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.near_me_outlined, size: 20),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(tr(context, 'settings.userNav'),
+                                style: const TextStyle(fontSize: 16)),
+                            const SizedBox(height: 2),
+                            Text(tr(context, 'settings.userNavHint'),
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: ZInk.faint(context))),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SegmentedButton<UserNavMode>(
+                    segments: [
+                      ButtonSegment(
+                        value: UserNavMode.rail,
+                        icon: const Icon(Icons.view_agenda_outlined, size: 18),
+                        label: Text(tr(context, 'settings.userNav.rail')),
+                      ),
+                      ButtonSegment(
+                        value: UserNavMode.arrows,
+                        icon: const Icon(Icons.unfold_more, size: 18),
+                        label: Text(tr(context, 'settings.userNav.arrows')),
+                      ),
+                    ],
+                    selected: {ui.userNavMode},
+                    onSelectionChanged: (s) =>
+                        ui.setUserNavMode(s.first),
+                    showSelectedIcon: false,
+                  ),
+                ],
+              ),
+            ),
             _header(context, tr(context, 'settings.notifications')),
             SwitchListTile(
               secondary: const Icon(Icons.notifications_outlined),

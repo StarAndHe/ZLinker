@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// How the chat navigates between the user's own messages.
+enum UserNavMode { rail, arrows }
+
 /// UI preferences: locale (zh-CN / en-US), the native task-list switch and
 /// the notification switches (master + per channel).
 class UiSettings extends ChangeNotifier {
@@ -10,6 +13,7 @@ class UiSettings extends ChangeNotifier {
   static const _notifyTasksKey = 'zlinker_notify_tasks';
   static const _notifyOffPeakKey = 'zlinker_notify_offpeak';
   static const _notifyAutoKey = 'zlinker_notify_auto';
+  static const _userNavKey = 'zlinker_user_nav_mode';
 
   String locale = 'zh-CN';
   bool nativeListEnabled = true;
@@ -17,6 +21,7 @@ class UiSettings extends ChangeNotifier {
   bool notifyTasksEnabled = true;
   bool notifyOffPeakEnabled = true;
   bool notifyAutoEnabled = true;
+  UserNavMode userNavMode = UserNavMode.rail;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -26,6 +31,8 @@ class UiSettings extends ChangeNotifier {
     notifyTasksEnabled = prefs.getBool(_notifyTasksKey) ?? true;
     notifyOffPeakEnabled = prefs.getBool(_notifyOffPeakKey) ?? true;
     notifyAutoEnabled = prefs.getBool(_notifyAutoKey) ?? true;
+    userNavMode = UserNavMode.values.asNameMap()[prefs.getString(_userNavKey)] ??
+        UserNavMode.rail;
     notifyListeners();
   }
 
@@ -69,6 +76,13 @@ class UiSettings extends ChangeNotifier {
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_notifyAutoKey, value);
+  }
+
+  Future<void> setUserNavMode(UserNavMode value) async {
+    userNavMode = value;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_userNavKey, value.name);
   }
 }
 
@@ -259,6 +273,9 @@ const _zh = {
   'phase.paused': '已暂停',
   // ---- chat (native conversation) ----
   'chat.appBar': '任务会话',
+  'chat.rail.toggle': '用户消息导航',
+  'chat.nav.prevUser': '上一条用户消息',
+  'chat.nav.nextUser': '下一条用户消息',
   'chat.copy': '复制',
   'chat.copied': '已复制',
   'chat.expand': '展开',
@@ -446,6 +463,10 @@ const _zh = {
   'settings.language.en': 'English',
   'settings.nativeList': '原生任务列表',
   'settings.nativeListHint': '原生显示设备在线状态与任务列表；关闭后仅用网页版',
+  'settings.userNav': '用户消息导航',
+  'settings.userNavHint': '会话页跳转用户消息的方式',
+  'settings.userNav.rail': '侧边滑动条',
+  'settings.userNav.arrows': '上下箭头',
   'settings.data': '数据',
   'settings.usageStats': '使用统计',
   'settings.usageStatsHint': '仅保存在本机',
@@ -847,6 +868,9 @@ const _en = {
   'phase.paused': 'Paused',
   // ---- chat (native conversation) ----
   'chat.appBar': 'Task session',
+  'chat.rail.toggle': 'User message navigation',
+  'chat.nav.prevUser': 'Previous user message',
+  'chat.nav.nextUser': 'Next user message',
   'chat.copy': 'Copy',
   'chat.copied': 'Copied',
   'chat.expand': 'Expand',
@@ -1041,6 +1065,10 @@ const _en = {
   'settings.nativeList': 'Native task list',
   'settings.nativeListHint':
       'Native device status and task list; turn off to use the web version only',
+  'settings.userNav': 'User-message navigation',
+  'settings.userNavHint': 'How the chat jumps between your messages',
+  'settings.userNav.rail': 'Side rail',
+  'settings.userNav.arrows': 'Up/down arrows',
   'settings.data': 'Data',
   'settings.usageStats': 'Usage statistics',
   'settings.usageStatsHint': 'Stored on this device only',

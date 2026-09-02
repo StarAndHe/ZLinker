@@ -87,6 +87,30 @@ class _ChatPageState extends State<ChatPage> {
   /// Mirrors [ChatPage.initialPinned]; flips when the 更多 pin toggle runs.
   bool _pinned = false;
 
+  // ------------------------------------------- user-message navigation
+  // Two user-selectable modes (UiSettings.userNavMode):
+  //  - rail:   right-edge strip; long-press shows preview, drag selects,
+  //            release jumps (implemented below).
+  //  - arrows: a floating ↑/↓ pair revealed by the app-bar button; each tap
+  //            walks to the previous / next user message. Both modes share
+  //            the "back to latest" FAB shown while scrolled away from the
+  //            bottom.
+  bool _railVisible = false;
+  int? _railIndex; // index into _userAnchors, kept across the whole page
+  bool _arrowsVisible = false; // arrows mode: controls revealed on demand
+  final Map<String, GlobalKey> _turnKeys = {}; // user-turn groupKey -> key
+
+  /// Anchors for the right rail: one per user message (kind == 'userInput'),
+  /// in ascending row order. Rebuilt whenever the server snapshot changes.
+  List<_UserAnchor> _userAnchors = const [];
+
+  /// Whether the "back to latest" FAB should show (scrolled above the tail).
+  bool _showLatestFab = false;
+
+  /// True while a programmatic scroll to the tail is in flight; suppresses
+  /// the FAB until the bottom is actually reached (avoids flicker).
+  bool _suppressFab = false;
+
   ConversationState? get _state => _handle?.state;
 
   @override
@@ -116,8 +140,28 @@ class _ChatPageState extends State<ChatPage> {
   void _onScroll() {
     if (!_scrollController.hasClients) return;
     final max = _scrollController.position.maxScrollExtent;
-    _stickToBottom = _scrollController.position.pixels >= max - 40;
+    final nearBottom = _scrollController.position.pixels >= max - 80;
+    _stickToBottom = nearBottom;
+    // A programmatic scroll back to the tail clears the suppression once it
+    // actually reaches the bottom.
+    if (_suppressFab && nearBottom) _suppressFab = false;
+    // While pinned to the tail (auto-follow / animateTo in flight) never show
+    // the FAB; otherwise it flickers mid-scroll.
+    final showFab = !_stickToBottom && !_suppressFab && max > 0;
+    if (showFab != _showLatestFab && mounted) {
+      setState(() => _showLatestFab = showFab);
+    }
   }
+
+  /// Scroll-listener bridge: stream updates keep following while the user is
+  /// near the tail, without yanking someone reading history.
+  void _followTail() {
+    _scrollToBottom();
+  }
+
+  /// Which user-message navigation chrome the user picked in settings.
+  UserNavMode get _navMode =>
+      UiSettingsProvider.of(context)?.userNavMode ?? UserNavMode.rail;
 
   Future<void> _loadPrep() async {
     try {
@@ -158,7 +202,7 @@ class _ChatPageState extends State<ChatPage> {
         _handle = handle;
         _error = null;
       });
-      handle.state.addListener(_scrollToBottom);
+      handle.state.addListener(_followTail);
       // The server snapshot is a tail window (can be as few as 3 rows).
       // The official client shows the full history immediately, so
       // auto-load the missing older rows once on open.
@@ -167,27 +211,10 @@ class _ChatPageState extends State<ChatPage> {
       }
       // Explicitly position at the newest message: the state listener only
       // fires on LATER updates and misses the initial snapshot.
-      _scrollToBottom();
+      _scrollToBottom(force: true);
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
     }
-  }
-
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      final max = _scrollController.position.maxScrollExtent;
-      // Snap to the newest message on open; afterwards only follow while the
-      // user is already near the bottom (so reading history isn't yanked).
-      if (_stickToBottom ||
-          _scrollController.position.pixels > max - 400) {
-        _scrollController.animateTo(
-          max,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      }
-    });
   }
 
   void _toast(String message) {
@@ -739,6 +766,16 @@ class _ChatPageState extends State<ChatPage> {
         automaticallyImplyLeading: !widget.embedded,
         title: Text(tr(context, 'chat.appBar')),
         actions: [
+          IconButton(
+            icon: Icon(
+              _navMode == UserNavMode.rail
+                  ? Icons.view_agenda_outlined
+                  : Icons.unfold_more,
+              size: 20,
+            ),
+            tooltip: tr(context, 'chat.rail.toggle'),
+            onPressed: _toggleNav,
+          ),
           if (widget.theme != null)
             IconButton(
               icon: Icon(switch (widget.theme!.mode) {
@@ -764,7 +801,7 @@ class _ChatPageState extends State<ChatPage> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                          fontSize: 15,
+                          fontSize: 18,
                           fontWeight: FontWeight.w600,
                           color: ZInk.solid(context))),
                 ),
@@ -850,6 +887,7 @@ class _ChatPageState extends State<ChatPage> {
                         animation: state,
                         builder: (context, _) {
                           final groups = _groupRows(state.rows);
+                          _syncAnchors(groups);
                           final itemCount = groups.length +
                               (state.canLoadOlder ? 1 : 0);
                           if (groups.isEmpty && !state.canLoadOlder) {
@@ -858,13 +896,14 @@ class _ChatPageState extends State<ChatPage> {
                                     style: TextStyle(
                                         color: ZInk.faint(context))));
                           }
-                          return _contentCol(
-                            ListView.builder(
-                              controller: _scrollController,
-                              padding:
-                                  const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                              itemCount: itemCount,
-                              itemBuilder: (context, index) {
+                          return _userRailStack(
+                            _contentCol(
+                              ListView.builder(
+                                controller: _scrollController,
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                                itemCount: itemCount,
+                                itemBuilder: (context, index) {
                               if (state.canLoadOlder && index == 0) {
                                 return Center(
                                   child: TextButton.icon(
@@ -894,25 +933,34 @@ class _ChatPageState extends State<ChatPage> {
                               final previous = groupIndex > 0
                                   ? groups[groupIndex - 1]
                                   : null;
-                              return Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.stretch,
-                                children: [
-                                  if (_timeDividerLabel(previous, group) !=
-                                      null)
-                                    _TimeDivider(
-                                        label: _timeDividerLabel(
-                                            previous, group)!),
-                                  _TurnGroupWidget(
-                                    rows: group,
-                                    gateway: widget.gateway,
-                                    sessionId: _sessionId ?? '',
-                                    onAction: _run,
-                                    state: state,
-                                  ),
-                                ],
+                              final anchorKey =
+                                  group.isNotEmpty &&
+                                          group.first['kind'] == 'userInput'
+                                      ? _turnKeys['${group.first['rowId'] ?? ''}']
+                                      : null;
+                              return KeyedSubtree(
+                                key: anchorKey,
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    if (_timeDividerLabel(previous, group) !=
+                                        null)
+                                      _TimeDivider(
+                                          label: _timeDividerLabel(
+                                              previous, group)!),
+                                    _TurnGroupWidget(
+                                      rows: group,
+                                      gateway: widget.gateway,
+                                      sessionId: _sessionId ?? '',
+                                      onAction: _run,
+                                      state: state,
+                                    ),
+                                  ],
+                                ),
                               );
-                            },
+                              }
+                            ),
                           ),
                           );
                         },
@@ -1083,6 +1131,403 @@ class _ChatPageState extends State<ChatPage> {
       if (v is num && v > 0) return v.toInt();
     }
     return null;
+  }
+
+  // ------------------------------------------------ user-message rail
+
+  /// Rebuilds [_userAnchors] from the currently rendered turn groups. Called
+  /// from the list builder so anchors track streaming/prepending updates.
+  /// Keeps keys stable by rowId so the selected [_railIndex] or a GlobalKey
+  /// survive prepends/inserts (never keyed by array index).
+  void _syncAnchors(List<List<Map<String, dynamic>>> groups) {
+    final anchors = <_UserAnchor>[];
+    final keys = <String, GlobalKey>{};
+    for (var g = 0; g < groups.length; g++) {
+      final group = groups[g];
+      if (group.isEmpty || group.first['kind'] != 'userInput') continue;
+      final row = group.first;
+      final rowId = '${row['rowId'] ?? ''}';
+      final key = _turnKeys[rowId] ??= GlobalKey();
+      keys[rowId] = key;
+      anchors.add(_UserAnchor(rowId: rowId, text: '${row['text'] ?? ''}'));
+    }
+    _turnKeys.removeWhere((id, _) => !keys.containsKey(id));
+    _userAnchors = anchors;
+    if (_railIndex != null && _railIndex! >= anchors.length) {
+      _railIndex = anchors.isEmpty ? null : anchors.length - 1;
+    }
+  }
+
+  /// Scrolls the conversation so the [index]-th user message is aligned to
+  /// the top of the visible area, then keeps its rail highlight selected.
+  Future<void> _scrollToUserMessage(int index) async {
+    final anchors = _userAnchors;
+    if (anchors.isEmpty || index < 0 || index >= anchors.length) return;
+    final key = _turnKeys[anchors[index].rowId];
+    setState(() {
+      _railIndex = index;
+      _stickToBottom = false;
+    });
+    final ctx = key?.currentContext;
+    if (ctx == null) return;
+    await Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      alignment: 0.0, // top of the visible viewport
+    );
+  }
+
+  /// App-bar entry: in rail mode toggles the rail; in arrows mode toggles
+  /// the floating ↑/↓ controls.
+  void _toggleNav() {
+    setState(() {
+      if (_navMode == UserNavMode.rail) {
+        _railVisible = !_railVisible;
+        _arrowsVisible = false;
+      } else {
+        _arrowsVisible = !_arrowsVisible;
+        _railVisible = false;
+      }
+    });
+  }
+
+  /// Jumps to the previous user message. From the tail the first tap lands
+  /// on the newest user message; further taps walk toward the oldest.
+  void _goPrevUser() {
+    final anchors = _userAnchors;
+    if (anchors.isEmpty) return;
+    final cur = (_railIndex ?? anchors.length);
+    final next = (cur - 1).clamp(0, anchors.length - 1);
+    _scrollToUserMessage(next);
+  }
+
+  /// Jumps to the next (newer) user message. From the newest user message a
+  /// tap returns to the very latest assistant content at the bottom.
+  void _goNextUser() {
+    final anchors = _userAnchors;
+    if (anchors.isEmpty) return;
+    final cur = _railIndex ?? anchors.length;
+    if (cur >= anchors.length - 1) {
+      _scrollToBottom(force: true);
+      return;
+    }
+    _scrollToUserMessage(cur + 1);
+  }
+
+  /// Scrolls the conversation back to the newest message.
+  void _jumpToLatest() => _scrollToBottom(force: true);
+
+  Future<void> _scrollToBottom({bool force = false}) async {
+    setState(() {
+      _stickToBottom = true;
+      _suppressFab = true;
+      _showLatestFab = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      final max = _scrollController.position.maxScrollExtent;
+      if (force || _scrollController.position.pixels < max - 40) {
+        _scrollController.animateTo(
+          max,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      } else if (mounted) {
+        // Already at the tail — clear the suppression so a later manual
+        // scroll can surface the FAB again.
+        setState(() => _suppressFab = false);
+      }
+    });
+  }
+
+  /// Hosts the message list and the active user-message navigation chrome:
+  ///  - rail mode: right-edge strip (selected marker kept across the page);
+  ///  - arrows mode: floating ↑/↓ pair shown on demand;
+  /// both share the "back to latest" FAB while scrolled away from bottom.
+  Widget _userRailStack(Widget child) {
+    final hasAnchors = _userAnchors.isNotEmpty;
+    final railOpen = _navMode == UserNavMode.rail && _railVisible && hasAnchors;
+    final arrowsOpen =
+        _navMode == UserNavMode.arrows && _arrowsVisible && hasAnchors;
+    if (!railOpen && !arrowsOpen && !_showLatestFab) return child;
+    return Stack(
+      children: [
+        child,
+        if (railOpen)
+          Positioned(
+            right: 0,
+            top: 0,
+            bottom: 0,
+            child: _UserMessageRail(
+              anchors: _userAnchors,
+              selectedIndex: _railIndex,
+              onSelect: _scrollToUserMessage,
+              onIndexChanged: (i) => setState(() => _railIndex = i),
+            ),
+          ),
+        if (arrowsOpen)
+          Positioned(
+            right: 14,
+            top: 16,
+            child: _UserMessageArrows(
+              hasPrevious: _userAnchors.length > 1,
+              hasNext: _userAnchors.isNotEmpty,
+              onUp: _goPrevUser,
+              onDown: _goNextUser,
+            ),
+          ),
+        if (_showLatestFab)
+          Positioned(
+            right: 14,
+            bottom: 8,
+            child: _LatestFab(onTap: _jumpToLatest),
+          ),
+      ],
+    );
+  }
+}
+
+/// One scrollable-anchor entry in the right-hand user-message rail.
+class _UserAnchor {
+  final String rowId;
+  final String text;
+  const _UserAnchor({required this.rowId, required this.text});
+}
+
+/// Floating ↑/↓ pair for stepping through the user's own messages (arrows
+/// mode). Shown only while [_ChatPageState._arrowsVisible].
+class _UserMessageArrows extends StatelessWidget {
+  final bool hasPrevious;
+  final bool hasNext;
+  final VoidCallback onUp;
+  final VoidCallback onDown;
+
+  const _UserMessageArrows({
+    required this.hasPrevious,
+    required this.hasNext,
+    required this.onUp,
+    required this.onDown,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final enabledColor = Theme.of(context).brightness == Brightness.dark
+        ? ZColors.neutral200
+        : ZColors.neutral800;
+    final disabledColor = ZInk.ghost(context);
+    return Material(
+      color: ZInk.tile(context),
+      elevation: 2,
+      borderRadius: BorderRadius.circular(12),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: Icon(Icons.keyboard_arrow_up,
+                color: hasPrevious ? enabledColor : disabledColor),
+            visualDensity: VisualDensity.compact,
+            tooltip: tr(context, 'chat.nav.prevUser'),
+            onPressed: hasPrevious ? onUp : null,
+          ),
+          const Divider(height: 1, indent: 8, endIndent: 8),
+          IconButton(
+            icon: Icon(Icons.keyboard_arrow_down,
+                color: hasNext ? enabledColor : disabledColor),
+            visualDensity: VisualDensity.compact,
+            tooltip: tr(context, 'chat.nav.nextUser'),
+            onPressed: hasNext ? onDown : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Round "back to latest" button shown while scrolled away from the bottom
+/// (official web remote parity). Shared by both navigation modes.
+class _LatestFab extends StatelessWidget {
+  final VoidCallback onTap;
+  const _LatestFab({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).brightness == Brightness.dark
+          ? ZColors.darkSecondary
+          : ZColors.neutral700,
+      shape: const CircleBorder(),
+      elevation: 3,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onTap,
+        child: const Padding(
+          padding: EdgeInsets.all(8),
+          child: Icon(Icons.arrow_downward,
+              size: 18, color: Colors.white),
+        ),
+      ),
+    );
+  }
+}
+
+/// Right-edge navigation rail over the user's own messages.
+///
+/// - Each marker = one user message (kind == 'userInput').
+/// - The selected marker is longer + narrower (thinner) + brighter.
+/// - Long-press shows a small preview card with the first 30 characters of
+///   that user message (clipped with an ellipsis).
+/// - Dragging up/down switches the selected marker; on release the caller
+///   scrolls the conversation to align that user message at the viewport top.
+class _UserMessageRail extends StatefulWidget {
+  final List<_UserAnchor> anchors;
+  final int? selectedIndex;
+  final Future<void> Function(int) onSelect;
+  final ValueChanged<int> onIndexChanged;
+
+  const _UserMessageRail({
+    required this.anchors,
+    required this.onSelect,
+    required this.selectedIndex,
+    required this.onIndexChanged,
+  });
+
+  @override
+  State<_UserMessageRail> createState() => _UserMessageRailState();
+}
+
+class _UserMessageRailState extends State<_UserMessageRail> {
+  static const _kMarkerW = 3.0;
+  static const _kMarkerSelW = 5.0;
+  static const _kSlot = 26; // marker(18) + vertical padding(8)
+  static const _kPreviewLen = 30;
+
+  /// Index shown in the preview card during a long-press/drag, or null when
+  /// not touching (the resting selection uses [widget.selectedIndex]).
+  int? _previewIndex;
+
+  List<_UserAnchor> get _anchors => widget.anchors;
+  int? get _selectedIndex => widget.selectedIndex;
+
+  String _clip(String text) {
+    final t = text.replaceAll('\n', ' ').trim();
+    if (t.length <= _kPreviewLen) return t;
+    return '${t.substring(0, _kPreviewLen)}…';
+  }
+
+  void _pick(double y, double railHeight) {
+    if (_anchors.isEmpty) return;
+    final total = _anchors.length * _kSlot;
+    final top = (railHeight - total) / 2;
+    final raw = ((y - top) / _kSlot).round();
+    final idx = raw.clamp(0, _anchors.length - 1);
+    setState(() => _previewIndex = idx);
+    widget.onIndexChanged(idx);
+  }
+
+  void _commit() {
+    final idx = _previewIndex;
+    if (idx != null) widget.onSelect(idx);
+  }
+
+  void _cancel() => setState(() => _previewIndex = null);
+
+  @override
+  Widget build(BuildContext context) {
+    final previewIdx = _previewIndex;
+    final previewAnchor = previewIdx != null
+        ? (previewIdx >= 0 && previewIdx < _anchors.length
+            ? _anchors[previewIdx]
+            : null)
+        : null;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final railHeight = constraints.maxHeight;
+        return Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onVerticalDragUpdate: (d) =>
+                    _pick(d.localPosition.dy, railHeight),
+                onVerticalDragEnd: (_) => _commit(),
+                onLongPressStart: (d) => _pick(d.localPosition.dy, railHeight),
+                onLongPressMoveUpdate: (d) =>
+                    _pick(d.localPosition.dy, railHeight),
+                onLongPressEnd: (_) => _commit(),
+                onLongPressCancel: _cancel,
+                child: SizedBox(
+                  width: 26,
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      for (var i = 0; i < _anchors.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 120),
+                            width: i == previewIdx || i == _selectedIndex
+                                ? _kMarkerSelW
+                                : _kMarkerW,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: i == previewIdx || i == _selectedIndex
+                                  ? ZColors.sky500
+                                  : ZInk.ghost(context),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (previewAnchor != null)
+              Positioned(
+                right: 32,
+                top: railHeight / 2 - 10,
+                child: _RailPreviewCard(text: _clip(previewAnchor.text)),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Small preview card shown to the left of the rail while long-pressing.
+class _RailPreviewCard extends StatelessWidget {
+  final String text;
+  const _RailPreviewCard({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 200),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? ZColors.darkSecondary
+            : ZColors.lightSecondary,
+        borderRadius: BorderRadius.circular(10),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Text(
+        text,
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+            fontSize: 12, color: ZInk.solid(context), height: 1.4),
+      ),
+    );
   }
 }
 
@@ -1564,7 +2009,7 @@ class _UserBubbleState extends State<_UserBubble> {
             padding:
                 const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             decoration: BoxDecoration(
-              color: ZColors.darkCard,
+              color: ZInk.userBubble(context),
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(16),
                 topRight: Radius.circular(16),
