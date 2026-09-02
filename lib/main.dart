@@ -36,9 +36,7 @@ class _ZLinkerAppState extends State<ZLinkerApp> {
   final ScheduledStore _scheduled = ScheduledStore();
   final NotificationService _notifications = NotificationService();
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
-  late final DeviceSessionHub _hub = DeviceSessionHub(
-    nativeListEnabled: () => _ui.nativeListEnabled,
-  );
+  late final DeviceSessionHub _hub = DeviceSessionHub();
   late final MessageScheduler _scheduler = MessageScheduler(
     store: _scheduled,
     devices: _store,
@@ -143,7 +141,9 @@ class _ZLinkerAppState extends State<ZLinkerApp> {
     if (!mounted) return;
     final context = _navigatorKey.currentContext;
     if (context == null || !context.mounted) return;
-    if (session != null) {
+    // Native chat only when the user opted into the native task list;
+    // otherwise the official web remote deep-links to the session.
+    if (_ui.nativeListEnabled && session != null) {
       await Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => ChatPage(
           gateway: session,

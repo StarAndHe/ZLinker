@@ -339,6 +339,40 @@ class DeviceSession extends ChangeNotifier
   @override
   SessionsIndexState? get sessions => _sessionsSub?.state;
 
+  /// Snapshot cache of sessions-index states for previously opened
+  /// workspaces (keyed by workspaceKey). Lets the timeline view aggregate
+  /// every workspace without re-fetching from scratch each time.
+  final Map<String, SessionsIndexState> _sessionsCache = {};
+
+  /// Workspace keys whose sessions-index is currently being prefetched.
+  final Set<String> _prefetching = {};
+
+  /// Cached sessions-index state for [workspaceKey], if any.
+  SessionsIndexState? sessionsOf(String workspaceKey) {
+    final activeKey = workspaceKeyOf(_activeWorkspace ?? const {});
+    if (activeKey == workspaceKey) return sessions;
+    return _sessionsCache[workspaceKey];
+  }
+
+  /// All known sessions across every cached workspace, sorted by
+  /// lastActivityAt descending (timeline ordering). Used by the 按时间线
+  /// grouping so it shows the whole account instead of just the active
+  /// workspace's own sessions.
+  List<SessionEntry> get allSessions {
+    final seen = <String>{};
+    final out = <SessionEntry>[];
+    for (final s in sessions?.list ?? const <SessionEntry>[]) {
+      if (seen.add(s.sessionId)) out.add(s);
+    }
+    for (final state in _sessionsCache.values) {
+      for (final s in state.list) {
+        if (seen.add(s.sessionId)) out.add(s);
+      }
+    }
+    out.sort((a, b) => b.lastActivityAt.compareTo(a.lastActivityAt));
+    return out;
+  }
+
   /// Conversation transport of the active workspace (chat UI seam).
   ConversationTransport? get conversation => _conversation;
 
@@ -521,6 +555,65 @@ class DeviceSession extends ChangeNotifier
     return completer.future;
   }
 
+  /// Prefetches and caches the sessions-index snapshot of every workspace
+  /// that isn't the active one, sequentially in the background. The task
+  /// list's timeline view calls this so 按时间线 can aggregate ALL
+  /// workspaces without the user opening each one by hand. Already-cached
+  /// workspaces are skipped; after the first snapshot lands the subscription
+  /// is closed (the snapshot stays in the cache) so connections aren't held
+  /// open forever.
+  Future<void> prefetchWorkspaceSessions() async {
+    final client = _client;
+    if (client == null || _disposed) return;
+    final activeKey = workspaceKeyOf(_activeWorkspace ?? const {});
+    for (final ws in List.of(_workspaces)) {
+      if (_disposed || _client != client) return;
+      final key = workspaceKeyOf(ws);
+      if (key == null || key == activeKey) continue;
+      if (_sessionsCache.containsKey(key) || _prefetching.contains(key)) {
+        continue;
+      }
+      _prefetching.add(key);
+      try {
+        final bridge = await client
+            .openBridge(key)
+            .timeout(const Duration(seconds: 30));
+        if (_disposed || _client != client) {
+          bridge.dispose();
+          return;
+        }
+        final scope = <String, dynamic>{
+          'workspacePath': ws['workspacePath'],
+          if (ws['workspaceIdentity'] != null)
+            'workspaceIdentity': ws['workspaceIdentity'],
+        };
+        final conversation = bridge.conversation(scope, onLog: _log);
+        final sub = await conversation.subscribeSessionsIndex();
+        // Wait for the first snapshot (bounded) so the cache holds real
+        // data rather than an empty state.
+        final ready = Completer<void>();
+        void onChanged() {
+          if (sub.state.ready && !ready.isCompleted) ready.complete();
+        }
+
+        sub.state.addListener(onChanged);
+        onChanged();
+        await ready.future
+            .timeout(const Duration(seconds: 10), onTimeout: () {});
+        sub.state.removeListener(onChanged);
+        _sessionsCache[key] = sub.state;
+        _log('[session] prefetched sessions for $key');
+        notifyListeners();
+        await sub.dispose();
+        bridge.dispose();
+      } catch (e) {
+        _log('[session] prefetch sessions failed for $key: $e');
+      } finally {
+        _prefetching.remove(key);
+      }
+    }
+  }
+
   Completer<void>? _openChain;
 
   Future<void> _openWorkspaceNow(Map<String, dynamic> workspace) async {
@@ -541,6 +634,12 @@ class DeviceSession extends ChangeNotifier
       final oldSub = _sessionsSub;
       final oldBridge = _bridge;
       final oldChats = List.of(_chatSubs.values);
+      // Keep the previous workspace's sessions snapshot in the cache so the
+      // timeline view (and switching back) doesn't refetch from scratch.
+      final oldKey = workspaceKeyOf(_activeWorkspace ?? const {});
+      if (oldKey != null && oldSub != null && oldSub.state.ready) {
+        _sessionsCache[oldKey] = oldSub.state;
+      }
       _sessionsSub = null;
       _conversation = null;
       _chatSubs.clear();
@@ -1120,10 +1219,11 @@ class DeviceSession extends ChangeNotifier
 /// Owns one [DeviceSession] per device and mediates the
 /// native-connection ↔ WebView handover. Kept as a plain ChangeNotifier so
 /// device cards can rebuild on any session change.
+///
+/// The native sessions stay alive regardless of the native-list UI switch:
+/// they power the device online status and completion notifications even
+/// while the UI shows the official web remote.
 class DeviceSessionHub extends ChangeNotifier {
-  /// Whether the native task list feature is enabled (settings switch).
-  final bool Function() nativeListEnabled;
-
   /// Grace period after the WebView closes before the native connection
   /// comes back — the relay needs a moment to free the device slot.
   static const resumeDelay = Duration(seconds: 1);
@@ -1134,8 +1234,6 @@ class DeviceSessionHub extends ChangeNotifier {
   /// Last-opened workspace per device (survives WebView handovers).
   final Map<String, String> _lastWorkspaceKey = {};
   bool _disposed = false;
-
-  DeviceSessionHub({required this.nativeListEnabled});
 
   DeviceSession? sessionOf(String deviceId) => _sessions[deviceId];
 
@@ -1153,8 +1251,12 @@ class DeviceSessionHub extends ChangeNotifier {
 
   /// Ensures [device] has a (re)connecting native session. Returns null
   /// for devices whose URL cannot be parsed (no protocol layer possible).
+  ///
+  /// The native session is kept alive regardless of the UI switch: it powers
+  /// the online status and task-completion notifications even when the UI
+  /// opens the official web remote.
   DeviceSession? ensure(Device device) {
-    if (_disposed || !nativeListEnabled()) return null;
+    if (_disposed) return null;
     final existing = _sessions[device.id];
     if (existing != null) {
       if (existing.status == DeviceStatus.disconnected ||
@@ -1191,9 +1293,10 @@ class DeviceSessionHub extends ChangeNotifier {
     }
   }
 
-  /// Reconnects [device] after [resumeDelay] (native list must be on).
+  /// Reconnects [device] after [resumeDelay] (the native session stays alive
+  /// for notifications even while the UI uses the web remote).
   void scheduleResume(Device device) {
-    if (_disposed || !nativeListEnabled()) return;
+    if (_disposed) return;
     final id = device.id;
     _resumes.remove(id)?.cancel();
     _resumes[id] = Timer(resumeDelay, () {
@@ -1219,21 +1322,18 @@ class DeviceSessionHub extends ChangeNotifier {
     }
   }
 
-  /// Reconciles native connections with the current device list and the
-  /// native-list switch: connect new devices, drop removed ones, tear
-  /// everything down when the feature is off.
+  /// Reconciles native connections with the current device list. The native
+  /// sessions stay alive regardless of the native-list UI switch: they power
+  /// online status and completion notifications even when the UI shows the
+  /// official web remote.
   void syncWith(List<Device> devices) {
     if (_disposed) return;
     final ids = devices.map((d) => d.id).toSet();
     for (final id in _sessions.keys.toList()) {
       if (!ids.contains(id)) unawaited(disconnect(id));
     }
-    if (nativeListEnabled()) {
-      for (final d in devices) {
-        ensure(d);
-      }
-    } else {
-      unawaited(disconnectAll());
+    for (final d in devices) {
+      ensure(d);
     }
   }
 

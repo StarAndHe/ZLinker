@@ -172,14 +172,15 @@ class _OffPeakPageState extends State<OffPeakPage>
   }
 
   /// Result tap: native chat page deep-linked to the produced session (the
-  /// protocol link stays live); WebView fallback when no link exists.
+  /// protocol link stays live); the official web remote otherwise.
   Future<void> _openResult(OffPeakTask task) async {
     final sessionId = task.sessionId ?? task.conversationId;
     if (sessionId == null) return;
+    final useNative = UiSettingsProvider.of(context)?.nativeListEnabled ?? true;
     await widget.store.touch(widget.device.id);
     final deviceSession = widget.hub.sessionOf(widget.device.id);
     if (!mounted) return;
-    if (deviceSession != null) {
+    if (useNative && deviceSession != null) {
       await Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => ChatPage(
           gateway: deviceSession,

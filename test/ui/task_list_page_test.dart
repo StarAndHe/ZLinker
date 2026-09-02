@@ -74,7 +74,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
-      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      hub: DeviceSessionHub(),
       device: device,
       sessionOverride: session,
     )));
@@ -111,7 +111,7 @@ void main() {
         {'workspacePath': '/repo/app'},
       ],
     );
-    final hub = DeviceSessionHub(nativeListEnabled: () => true);
+    final hub = DeviceSessionHub();
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
       hub: hub,
@@ -144,7 +144,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
-      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      hub: DeviceSessionHub(),
       device: device,
       sessionOverride: session,
     )));
@@ -171,7 +171,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
-      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      hub: DeviceSessionHub(),
       device: device,
       sessionOverride: session,
     )));
@@ -192,7 +192,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
-      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      hub: DeviceSessionHub(),
       device: device,
       sessionOverride: session,
     )));
@@ -222,7 +222,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
-      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      hub: DeviceSessionHub(),
       device: device,
       sessionOverride: session,
     )));
@@ -268,7 +268,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
-      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      hub: DeviceSessionHub(),
       device: device,
       sessionOverride: session,
     )));
@@ -314,7 +314,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
-      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      hub: DeviceSessionHub(),
       device: device,
       sessionOverride: session,
     )));
@@ -355,7 +355,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
-      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      hub: DeviceSessionHub(),
       device: device,
       sessionOverride: session,
     )));
@@ -382,7 +382,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
-      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      hub: DeviceSessionHub(),
       device: device,
       sessionOverride: session,
     )));
@@ -414,7 +414,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
-      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      hub: DeviceSessionHub(),
       device: device,
       sessionOverride: session,
     )));
@@ -459,7 +459,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
-      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      hub: DeviceSessionHub(),
       device: device,
       sessionOverride: session,
     )));
@@ -586,7 +586,7 @@ void main() {
     );
     await tester.pumpWidget(wrap(TaskListPage(
       store: store,
-      hub: DeviceSessionHub(nativeListEnabled: () => false),
+      hub: DeviceSessionHub(),
       device: device,
       sessionOverride: session,
     )));

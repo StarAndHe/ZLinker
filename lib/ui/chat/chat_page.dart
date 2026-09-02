@@ -1328,9 +1328,6 @@ class _ChatPageState extends State<ChatPage> {
 
   /// Scrolls the conversation so the [index]-th user message is aligned to
   /// the top of the visible area, then keeps its rail highlight selected.
-  ///
-  /// Uses the positioned list controller (not Scrollable.ensureVisible) so a
-  /// target that is outside the lazy viewport still scrolls into view.
   Future<void> _scrollToUserMessage(int index) async {
     final anchors = _userAnchors;
     if (anchors.isEmpty || index < 0 || index >= anchors.length) return;
@@ -1340,39 +1337,44 @@ class _ChatPageState extends State<ChatPage> {
       _userPinnedBottom = false;
     });
     final key = _turnKeys[anchors[index].rowId];
-    var ctx = key?.currentContext;
+    // Already built: refine directly.
+    final ctx = key?.currentContext;
     if (ctx != null) {
       await Scrollable.ensureVisible(
         ctx,
         duration: const Duration(milliseconds: 250),
         curve: Curves.easeOut,
-        alignment: 0.0, // top of the visible viewport
+        alignment: 0.0,
       );
       return;
     }
-    // Lazy list: the target is not built yet. Estimate its offset by linear
-    // interpolation (itemIndex / totalItems * maxScrollExtent) so it enters
-    // the cache extent, then refine with ensureVisible on the next frame.
     if (!_scrollController.hasClients) return;
     final pos = _scrollController.position;
     final total = pos.maxScrollExtent;
     final itemCount = (_lastItemIndex ?? 0) + 1;
+    // Use the target's REAL item index (user messages are interleaved with
+    // assistant replies, so the anchor ordinal is not proportional to the
+    // scroll offset). Jump close, then retry a few frames for the lazy list
+    // to build the target and refine it to the viewport top.
+    final targetItem =
+        index < _anchorItemIndexes.length ? _anchorItemIndexes[index] : index;
     final estimated = total <= 0 || itemCount <= 0
         ? 0.0
-        : (index / itemCount) * total;
-    _scrollController.jumpTo(estimated.clamp(0.0, total));
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      final ctx2 = key?.currentContext;
-      if (ctx2 != null) {
+        : (targetItem / itemCount) * total;
+    for (var attempt = 0; attempt < 6; attempt++) {
+      final ctxNow = key?.currentContext;
+      if (ctxNow != null) {
         await Scrollable.ensureVisible(
-          ctx2,
+          ctxNow,
           duration: const Duration(milliseconds: 250),
           curve: Curves.easeOut,
           alignment: 0.0,
         );
+        return;
       }
-    });
+      _scrollController.jumpTo(estimated.clamp(0.0, total));
+      await WidgetsBinding.instance.endOfFrame;
+    }
   }
 
   /// App-bar entry: in rail mode toggles the rail; in arrows mode toggles

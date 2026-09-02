@@ -976,10 +976,11 @@ class _TaskListPageState extends State<TaskListPage> {
 
   /// Official 按时间线 grouping: day buckets (今天 / N 天前 / 上周 / 更早)
   /// with one row per task, each prefixed with its workspace name.
+  ///
+  /// Aggregates EVERY cached workspace's sessions (not just the active one)
+  /// so the timeline shows the whole account.
   List<Widget> _timelineGroups(BuildContext context, DeviceSession session) {
-    final entries = _sortedEntries(session.sessions?.ready == true
-        ? session.sessions!.list
-        : const <SessionEntry>[]);
+    final entries = _sortedEntries(session.allSessions);
     if (entries.isEmpty) {
       return [Padding(
         padding: const EdgeInsets.symmetric(vertical: 24),
