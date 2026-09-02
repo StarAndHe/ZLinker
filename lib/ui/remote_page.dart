@@ -172,71 +172,101 @@ class _RemotePageState extends State<RemotePage> {
   String _deepLinkJs() =>
       buildDeepLinkJs(widget.targetSessionId ?? '', widget.targetTitle);
 
-  /// Ensures the device URL carries its `theme=` query when present so the
-  /// official web remote opens in the matching color scheme.
+  /// The device URL, plus `theme=` when present and `session=` when a
+  /// target session is known. The official web remote honors the `session`
+  /// query parameter to open a conversation directly (the same link the
+  /// chat's "copy task link" action produces) — far more reliable than the
+  /// DOM-click deep link, which stays as a fallback below.
   String get _launchUrl {
     final raw = widget.device.url;
     final theme = widget.device.params?.theme;
-    if (theme == null || theme.isEmpty) return raw;
     final uri = Uri.parse(raw);
-    if (uri.queryParameters['theme'] == theme) return raw;
-    return uri.replace(queryParameters: {
-      ...uri.queryParameters,
-      'theme': theme,
-    }).toString();
+    final params = <String, String>{...uri.queryParameters};
+    final sessionId = widget.targetSessionId;
+    if (sessionId != null && sessionId.isNotEmpty) {
+      params['session'] = sessionId;
+    }
+    if (theme != null && theme.isNotEmpty) {
+      params['theme'] = theme;
+    }
+    return uri.replace(queryParameters: params).toString();
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final linking = _deepLinkTimer != null;
-    return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(widget.device.label,
-                style:
-                    const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            Text(linking ? tr(context, 'tasks.deepLinking') : 'zcode.z.ai',
-                style: TextStyle(fontSize: 11, color: ZInk.faint(context))),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => _controller?.reload(),
-          ),
-          PopupMenuButton<String>(
-            onSelected: (v) async {
-              if (v == 'browser') {
-                await launchUrl(Uri.parse(_launchUrl),
-                    mode: LaunchMode.externalApplication);
-              } else if (v == 'reload') {
-                await _controller?.reload();
-              }
-            },
-            itemBuilder: (c) => [
-              PopupMenuItem(
-                  value: 'browser', child: Text(tr(context, 'devices.menu.browser'))),
-              PopupMenuItem(
-                  value: 'reload', child: Text(tr(context, 'remote.reload'))),
+    // Back handling: the official web remote is a SPA — tapping back (system
+    // gesture, AppBar arrow) should first go back INSIDE the page (e.g. from
+    // a conversation back to the session list). Only when the WebView has no
+    // history left do we pop the route back to the device page.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        final controller = _controller;
+        if (controller == null) {
+          if (mounted) Navigator.of(context).pop();
+          return;
+        }
+        controller.canGoBack().then((can) {
+          if (!mounted) return;
+          if (can) {
+            controller.goBack();
+          } else {
+            if (!context.mounted) return;
+            Navigator.of(context).pop();
+          }
+        });
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          titleSpacing: 0,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(widget.device.label,
+                  style:
+                      const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+              Text(linking ? tr(context, 'tasks.deepLinking') : 'zcode.z.ai',
+                  style: TextStyle(fontSize: 11, color: ZInk.faint(context))),
             ],
           ),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(2),
-          child: (_progress < 1 && !_hasError) || linking
-              ? const LinearProgressIndicator(
-                  minHeight: 2,
-                  color: ZColors.sky500,
-                  backgroundColor: Colors.transparent,
-                )
-              : const SizedBox(height: 2),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              onPressed: () => _controller?.reload(),
+            ),
+            PopupMenuButton<String>(
+              onSelected: (v) async {
+                if (v == 'browser') {
+                  await launchUrl(Uri.parse(_launchUrl),
+                      mode: LaunchMode.externalApplication);
+                } else if (v == 'reload') {
+                  await _controller?.reload();
+                }
+              },
+              itemBuilder: (c) => [
+                PopupMenuItem(
+                    value: 'browser',
+                    child: Text(tr(context, 'devices.menu.browser'))),
+                PopupMenuItem(
+                    value: 'reload', child: Text(tr(context, 'remote.reload'))),
+              ],
+            ),
+          ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(2),
+            child: (_progress < 1 && !_hasError) || linking
+                ? const LinearProgressIndicator(
+                    minHeight: 2,
+                    color: ZColors.sky500,
+                    backgroundColor: Colors.transparent,
+                  )
+                : const SizedBox(height: 2),
+          ),
         ),
-      ),
       body: Stack(
         children: [
           InAppWebView(
@@ -310,8 +340,9 @@ class _RemotePageState extends State<RemotePage> {
             ),
         ],
       ),
-      backgroundColor:
-          isDark ? ZColors.darkBackground : ZColors.lightBackground,
+        backgroundColor:
+            isDark ? ZColors.darkBackground : ZColors.lightBackground,
+      ),
     );
   }
 }
