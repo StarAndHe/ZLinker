@@ -117,6 +117,12 @@ class _ChatPageState extends State<ChatPage> {
   /// the FAB until the bottom is actually reached (avoids flicker).
   bool _suppressFab = false;
 
+  /// User intent: whether the user wants to stay pinned to the tail. Set true
+  /// when scrolled to the bottom and false the moment they scroll up past the
+  /// newest message. Stream tokens only follow while this is true, so reading
+  /// history is never yanked back down during generation.
+  bool _userPinnedBottom = true;
+
   /// Last item index in the positioned list (total messages + 1 for the
   /// "load older" row when present). Used to detect the tail.
   int? _lastItemIndex;
@@ -173,9 +179,21 @@ class _ChatPageState extends State<ChatPage> {
     // tokens no longer yank the view back down.
     final nearBottom = last != null && last.itemTrailingEdge >= 0.995;
     _stickToBottom = nearBottom;
-    // If the whole conversation fits in one screen there is nothing to scroll
-    // to, so the back-to-latest FAB is unnecessary.
-    final allFit = hasFirst && last != null && last.itemTrailingEdge <= 1.0;
+    // User intent: pinned to the tail while at the bottom; once they scroll
+    // far enough that the newest message leaves the viewport top, they are
+    // reading history and must not be yanked back by streaming tokens.
+    if (last != null && last.itemTrailingEdge >= 0.995) {
+      _userPinnedBottom = true;
+    } else if (last != null && last.itemLeadingEdge < 0) {
+      _userPinnedBottom = false;
+    }
+    // Content fits in one screen when the first AND last items are both fully
+    // inside the viewport (leading >= 0 and trailing <= 1). When the user
+    // scrolls up the last item's leading edge goes negative, so allFit is
+    // false and the back-to-latest FAB correctly appears.
+    final allFit =
+        hasFirst && last != null && last.itemLeadingEdge >= 0.0 &&
+            last.itemTrailingEdge <= 1.0;
     if (_suppressFab && nearBottom) _suppressFab = false;
     final showFab = !nearBottom && !allFit && !_suppressFab && !_loadingOlder;
     if (showFab != _showLatestFab && mounted) {
@@ -216,10 +234,11 @@ class _ChatPageState extends State<ChatPage> {
   }
 
   /// Scroll-listener bridge: stream updates follow the tail ONLY while the
-  /// user is already at/near the bottom. If the user scrolled up to read
-  /// history, incoming tokens must not yank them back down.
+  /// user WANTS to stay pinned (they are sitting at the bottom). Once they
+  /// scroll up to read history, _userPinnedBottom goes false and incoming
+  /// tokens no longer yank the view back down.
   void _followTail() {
-    if (!_stickToBottom) return;
+    if (!_userPinnedBottom) return;
     _scrollToBottom();
   }
 
@@ -1305,6 +1324,7 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _scrollToBottom({bool force = false}) async {
     setState(() {
       _stickToBottom = true;
+      _userPinnedBottom = true;
       _suppressFab = true;
       _showLatestFab = false;
     });
