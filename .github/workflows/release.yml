@@ -29,6 +29,7 @@ jobs:
         run: flutter pub get
 
       - name: Restore release keystore
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -39,6 +40,8 @@ jobs:
           printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=zlinker-release.jks\n' \
             "$KEYSTORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > android/key.properties
 
+      # Without release keystore secrets (e.g. a community fork) Gradle falls
+      # back to the debug signing config and still yields an installable APK.
       - name: Build APK (github channel)
         run: flutter build apk --release --dart-define=APP_CHANNEL=github
 
