@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../../protocol/conversation.dart';
 import '../../state/device_session.dart';
@@ -63,7 +64,12 @@ class _PendingFile {
 class _ChatPageState extends State<ChatPage> {
   ChatHandle? _handle;
   final _inputController = TextEditingController();
-  final _scrollController = ScrollController();
+  // Positioned-list controller: needed to jump to a specific user message
+  // even when it is not yet built (lazy rendering). A plain ScrollController
+  // cannot address an index that exists outside the viewport.
+  final ItemScrollController _itemScrollController = ItemScrollController();
+  final ItemPositionsListener _itemPositionsListener =
+      ItemPositionsListener.create();
   String? _sessionId;
   String? _error;
   bool _sending = false;
@@ -111,6 +117,16 @@ class _ChatPageState extends State<ChatPage> {
   /// the FAB until the bottom is actually reached (avoids flicker).
   bool _suppressFab = false;
 
+  /// Last item index in the positioned list (total messages + 1 for the
+  /// "load older" row when present). Used to detect the tail.
+  int? _lastItemIndex;
+
+  /// For each [_userAnchors] entry, the item index it occupies in the
+  /// positioned list (message index + 1 when the "load older" row is shown).
+  /// Kept in lockstep with [_userAnchors] so a rail/arrow jump addresses the
+  /// exact list item even when it is not built yet.
+  final List<int> _anchorItemIndexes = [];
+
   ConversationState? get _state => _handle?.state;
 
   @override
@@ -122,7 +138,7 @@ class _ChatPageState extends State<ChatPage> {
     if (initial != null && initial.isNotEmpty) {
       _inputController.text = initial;
     }
-    _scrollController.addListener(_onScroll);
+    _itemPositionsListener.itemPositions.addListener(_onPositionsChanged);
     if (_sessionId != null) {
       _subscribe();
     }
@@ -137,17 +153,26 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
-  void _onScroll() {
-    if (!_scrollController.hasClients) return;
-    final max = _scrollController.position.maxScrollExtent;
-    final nearBottom = _scrollController.position.pixels >= max - 80;
+  /// Called on every scroll. ScrollablePositionedList only reports the items
+  /// it has built, so "at the tail" is inferred from the last built item's
+  /// trailing edge being within a small margin of the viewport bottom.
+  void _onPositionsChanged() {
+    final lastIndex = _lastItemIndex;
+    if (lastIndex == null) return;
+    final positions = _itemPositionsListener.itemPositions.value;
+    ItemPosition? last;
+    for (final p in positions) {
+      if (p.index == lastIndex) {
+        last = p;
+        break;
+      }
+    }
+    // If the last item isn't built at all we're far from the tail. When its
+    // trailing edge reaches ~1.0 (the viewport bottom) we are near the tail.
+    final nearBottom = last != null && last.itemTrailingEdge >= 0.995;
     _stickToBottom = nearBottom;
-    // A programmatic scroll back to the tail clears the suppression once it
-    // actually reaches the bottom.
     if (_suppressFab && nearBottom) _suppressFab = false;
-    // While pinned to the tail (auto-follow / animateTo in flight) never show
-    // the FAB; otherwise it flickers mid-scroll.
-    final showFab = !_stickToBottom && !_suppressFab && max > 0;
+    final showFab = !nearBottom && !_suppressFab && !_loadingOlder;
     if (showFab != _showLatestFab && mounted) {
       setState(() => _showLatestFab = showFab);
     }
@@ -183,7 +208,7 @@ class _ChatPageState extends State<ChatPage> {
   void dispose() {
     _handle?.close();
     _inputController.dispose();
-    _scrollController.dispose();
+    _itemPositionsListener.itemPositions.removeListener(_onPositionsChanged);
     super.dispose();
   }
 
@@ -887,9 +912,10 @@ class _ChatPageState extends State<ChatPage> {
                         animation: state,
                         builder: (context, _) {
                           final groups = _groupRows(state.rows);
-                          _syncAnchors(groups);
+                          _syncAnchors(groups, state.canLoadOlder);
                           final itemCount = groups.length +
                               (state.canLoadOlder ? 1 : 0);
+                          _lastItemIndex = itemCount - 1;
                           if (groups.isEmpty && !state.canLoadOlder) {
                             return Center(
                                 child: Text(tr(context, 'chat.empty'),
@@ -898,8 +924,9 @@ class _ChatPageState extends State<ChatPage> {
                           }
                           return _userRailStack(
                             _contentCol(
-                              ListView.builder(
-                                controller: _scrollController,
+                              ScrollablePositionedList.builder(
+                                itemScrollController: _itemScrollController,
+                                itemPositionsListener: _itemPositionsListener,
                                 padding:
                                     const EdgeInsets.fromLTRB(16, 8, 16, 8),
                                 itemCount: itemCount,
@@ -1139,8 +1166,9 @@ class _ChatPageState extends State<ChatPage> {
   /// from the list builder so anchors track streaming/prepending updates.
   /// Keeps keys stable by rowId so the selected [_railIndex] or a GlobalKey
   /// survive prepends/inserts (never keyed by array index).
-  void _syncAnchors(List<List<Map<String, dynamic>>> groups) {
+  void _syncAnchors(List<List<Map<String, dynamic>>> groups, bool canLoadOlder) {
     final anchors = <_UserAnchor>[];
+    final itemIndexes = <int>[];
     final keys = <String, GlobalKey>{};
     for (var g = 0; g < groups.length; g++) {
       final group = groups[g];
@@ -1150,9 +1178,13 @@ class _ChatPageState extends State<ChatPage> {
       final key = _turnKeys[rowId] ??= GlobalKey();
       keys[rowId] = key;
       anchors.add(_UserAnchor(rowId: rowId, text: '${row['text'] ?? ''}'));
+      itemIndexes.add(g + (canLoadOlder ? 1 : 0));
     }
     _turnKeys.removeWhere((id, _) => !keys.containsKey(id));
     _userAnchors = anchors;
+    _anchorItemIndexes
+      ..clear()
+      ..addAll(itemIndexes);
     if (_railIndex != null && _railIndex! >= anchors.length) {
       _railIndex = anchors.isEmpty ? null : anchors.length - 1;
     }
@@ -1160,19 +1192,22 @@ class _ChatPageState extends State<ChatPage> {
 
   /// Scrolls the conversation so the [index]-th user message is aligned to
   /// the top of the visible area, then keeps its rail highlight selected.
+  ///
+  /// Uses the positioned list controller (not Scrollable.ensureVisible) so a
+  /// target that is outside the lazy viewport still scrolls into view.
   Future<void> _scrollToUserMessage(int index) async {
     final anchors = _userAnchors;
     if (anchors.isEmpty || index < 0 || index >= anchors.length) return;
-    final key = _turnKeys[anchors[index].rowId];
+    final itemIndex = index < _anchorItemIndexes.length
+        ? _anchorItemIndexes[index]
+        : anchors.length; // fallback: conservative item index
     setState(() {
       _railIndex = index;
       _stickToBottom = false;
     });
-    final ctx = key?.currentContext;
-    if (ctx == null) return;
-    await Scrollable.ensureVisible(
-      ctx,
-      duration: const Duration(milliseconds: 200),
+    await _itemScrollController.scrollTo(
+      index: itemIndex,
+      duration: const Duration(milliseconds: 250),
       curve: Curves.easeOut,
       alignment: 0.0, // top of the visible viewport
     );
@@ -1224,21 +1259,24 @@ class _ChatPageState extends State<ChatPage> {
       _suppressFab = true;
       _showLatestFab = false;
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_scrollController.hasClients) return;
-      final max = _scrollController.position.maxScrollExtent;
-      if (force || _scrollController.position.pixels < max - 40) {
-        _scrollController.animateTo(
-          max,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      } else if (mounted) {
-        // Already at the tail — clear the suppression so a later manual
-        // scroll can surface the FAB again.
-        setState(() => _suppressFab = false);
-      }
-    });
+    final lastIndex = _lastItemIndex;
+    if (lastIndex == null || lastIndex < 0) {
+      if (mounted) setState(() => _suppressFab = false);
+      return;
+    }
+    await _itemScrollController.scrollTo(
+      index: lastIndex,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      alignment: 1.0, // bottom of the visible viewport (the latest message)
+    );
+    // Once the scroll completes the positions listener clears suppression;
+    // also clear it here for the already-at-tail case.
+    if (mounted && _suppressFab) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _suppressFab) setState(() => _suppressFab = false);
+      });
+    }
   }
 
   /// Hosts the message list and the active user-message navigation chrome:
@@ -1444,6 +1482,9 @@ class _UserMessageRailState extends State<_UserMessageRail> {
       builder: (context, constraints) {
         final railHeight = constraints.maxHeight;
         return Stack(
+          // The preview card is drawn to the left of the narrow rail, so it
+          // must be allowed to overflow the rail's own bounds.
+          clipBehavior: Clip.none,
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
