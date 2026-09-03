@@ -23,9 +23,13 @@ import 'ui_settings.dart';
 const _kDeepLinkTimeout = Duration(seconds: 30);
 const _kDeepLinkPollInterval = Duration(milliseconds: 800);
 
-/// Builds the injected deep-link script. [sessionId] and [title] are
-/// embedded via [jsonEncode] so quotes/newlines cannot break out of the
-/// JS string literals.
+/// Builds the injected deep-link script. It installs a persistent
+/// MutationObserver: the session list renders asynchronously inside the SPA
+/// (the page URL never changes), so instead of racing a fixed poll the
+/// observer clicks the target the MOMENT it appears in the DOM. Progress is
+/// reported through `window.__zld` ('pending' | 'navigated' | 'already' |
+/// 'titled' | 'takeover'). [sessionId] and [title] are embedded via
+/// [jsonEncode] so quotes/newlines cannot break out of the JS literals.
 String buildDeepLinkJs(String sessionId, String? title) {
   final sid = jsonEncode(sessionId);
   final name = jsonEncode(title ?? '');
@@ -33,59 +37,75 @@ String buildDeepLinkJs(String sessionId, String? title) {
 (function () {
   var SID = $sid;
   var TITLE = $name;
+  var DONE = false;
+  window.__zld = window.__zld || 'pending';
   function txt(el) {
     return ((el && (el.innerText || el.textContent)) || '').trim();
   }
-  // Takeover screen ("已被其他设备接管"): click 下一步/确认/进入.
-  var bodyTxt = txt(document.body).slice(0, 4000);
-  if (/接管/.test(bodyTxt) || /taken over by another/i.test(bodyTxt)) {
-    var btns = document.querySelectorAll('button');
-    for (var i = 0; i < btns.length; i++) {
-      var t = txt(btns[i]);
-      if (t && t.length <= 8 &&
-          /^(下一步|确认|进入|Next|Confirm|Enter|Continue)\$/.test(t)) {
-        btns[i].click();
-        return 'takeover';
+  function elHasSid(el) {
+    for (var a = 0; a < el.attributes.length; a++) {
+      var v = el.attributes[a].value || '';
+      if (v.indexOf(SID) >= 0) return true;
+    }
+    return false;
+  }
+  function findAndClick() {
+    if (DONE) return;
+    // Takeover screen ("已被其他设备接管"): click 下一步/确认/进入 — only
+    // once per screen (the observer would otherwise re-click on every DOM
+    // mutation of the takeover overlay).
+    var bodyTxt = txt(document.body).slice(0, 4000);
+    if ((/接管/.test(bodyTxt) || /taken over by another/i.test(bodyTxt)) &&
+        window.__zld !== 'takeover') {
+      var btns = document.querySelectorAll('button');
+      for (var i = 0; i < btns.length; i++) {
+        var t = txt(btns[i]);
+        if (t && t.length <= 8 &&
+            /^(下一步|确认|进入|Next|Confirm|Enter|Continue)\$/.test(t)) {
+          btns[i].click();
+          window.__zld = 'takeover';
+          return;
+        }
+      }
+    }
+    // Already viewing the target task.
+    var active = document.querySelector('[data-mobile-active-task="true"]');
+    if (active && elHasSid(active)) {
+      window.__zld = 'already';
+      DONE = true;
+      return;
+    }
+    // Any element whose data-* attribute VALUE contains the session id.
+    var all = document.querySelectorAll('[data-testid],[data-task-item-key],[data-session-id],[data-session],[data-id],[data-key]');
+    for (var j = 0; j < all.length; j++) {
+      var n = all[j];
+      if (elHasSid(n)) {
+        (n.querySelector('button, a, [role="button"]') || n).click();
+        window.__zld = 'navigated';
+        DONE = true;
+        return;
+      }
+    }
+    // First-screen task picker: visible button whose text matches the title.
+    if (TITLE.length >= 4) {
+      var btns2 = document.querySelectorAll('button');
+      for (var k = 0; k < btns2.length; k++) {
+        var bt = txt(btns2[k]);
+        if (bt && bt.indexOf(TITLE) >= 0 && btns2[k].offsetParent !== null) {
+          btns2[k].click();
+          window.__zld = 'titled';
+          DONE = true;
+          return;
+        }
       }
     }
   }
-  // Already viewing the target task.
-  var active = document.querySelector('[data-mobile-active-task="true"]');
-  if (active) {
-    var hit = false;
-    for (var a = 0; a < active.attributes.length; a++) {
-      var v = active.attributes[a].value || '';
-      if (v.indexOf(SID) >= 0) { hit = true; break; }
-    }
-    if (hit) return 'already';
+  findAndClick();
+  if (!DONE && window.MutationObserver) {
+    var obs = new MutationObserver(function () { findAndClick(); });
+    obs.observe(document.body || document.documentElement,
+        {childList: true, subtree: true});
   }
-  // Any element whose data-* attribute VALUE contains the session id.
-  // Broader than the old li[data-testid] contract: covers renamed keys.
-  var all = document.querySelectorAll('[data-testid],[data-task-item-key],[data-session-id],[data-session],[data-id],[data-key]');
-  for (var j = 0; j < all.length; j++) {
-    var n = all[j];
-    var hit2 = false;
-    for (var a2 = 0; a2 < n.attributes.length; a2++) {
-      var v2 = n.attributes[a2].value || '';
-      if (v2.indexOf(SID) >= 0) { hit2 = true; break; }
-    }
-    if (hit2) {
-      (n.querySelector('button, a, [role="button"]') || n).click();
-      return 'navigated';
-    }
-  }
-  // First-screen task picker: visible button whose text matches the title.
-  if (TITLE.length >= 4) {
-    var btns2 = document.querySelectorAll('button');
-    for (var k = 0; k < btns2.length; k++) {
-      var bt = txt(btns2[k]);
-      if (bt && bt.indexOf(TITLE) >= 0 && btns2[k].offsetParent !== null) {
-        btns2[k].click();
-        return 'titled';
-      }
-    }
-  }
-  return 'pending';
 })()
 ''';
 }
@@ -129,11 +149,11 @@ class _RemotePageState extends State<RemotePage> {
   // ------------------------------------------------------------ deep-link
 
   void _startDeepLink() {
-    if (widget.targetSessionId == null ||
-        _deepLinkDone ||
-        _deepLinkTimer != null) {
-      return;
-    }
+    if (widget.targetSessionId == null || _deepLinkDone) return;
+    // (Re)install the MutationObserver on every load — an SPA refresh wipes
+    // the previous observer and the page may re-render the list.
+    unawaited(_injectObserver());
+    if (_deepLinkTimer != null) return;
     _deepLinkTicks = 0;
     _deepLinkTimer = Timer.periodic(_kDeepLinkPollInterval, (_) {
       _deepLinkTicks += 1;
@@ -153,12 +173,22 @@ class _RemotePageState extends State<RemotePage> {
     _deepLinkTimer = null;
   }
 
+  Future<void> _injectObserver() async {
+    final controller = _controller;
+    if (controller == null || !mounted) return;
+    try {
+      await controller.evaluateJavascript(source: _deepLinkJs());
+    } catch (_) {
+      // Page navigating; the next loadStop re-injects.
+    }
+  }
+
   Future<void> _pollDeepLink() async {
     final controller = _controller;
     if (controller == null || !mounted) return;
     dynamic res;
     try {
-      res = await controller.evaluateJavascript(source: _deepLinkJs());
+      res = await controller.evaluateJavascript(source: 'window.__zld');
     } catch (_) {
       return; // page navigating; retry on the next tick
     }
