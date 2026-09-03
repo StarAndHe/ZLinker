@@ -60,6 +60,9 @@ class FakeNotifiableSession extends ChangeNotifier
   @override
   SessionsIndexState? get sessions => _state;
 
+  @override
+  List<SessionEntry> get allSessions => _state.list;
+
   /// Applies a full snapshot (title/phase per session) and notifies.
   void setEntries(List<(String, String, String)> entries) {
     _state.applyFrame({

@@ -31,6 +31,10 @@ class NotificationHub {
   final _taskPhases = <String, Map<String, String>>{};
   final _offPeakStatuses = <String, Map<String, String>>{};
   final _autoLastRunAt = <String, Map<String, int>>{};
+  /// 'device:session' keys already notified as waiting-for-decision; cleared
+  /// once the session resolves (leaves the waiting state or loses its
+  /// pending interaction).
+  final _waitForDecision = <String>{};
   Timer? _offPeakTimer;
   Timer? _autoTimer;
   bool _disposed = false;
@@ -60,6 +64,7 @@ class NotificationHub {
         _taskPhases.remove(id);
         _offPeakStatuses.remove(id);
         _autoLastRunAt.remove(id);
+        _waitForDecision.removeWhere((k) => k.startsWith('$id:'));
       }
     }
   }
@@ -74,22 +79,27 @@ class NotificationHub {
   }
 
   void _snapshotPhases(NotifiableSession session) {
-    final sessions = session.sessions;
-    if (sessions == null) return;
+    final entries = session.allSessions;
+    if (entries.isEmpty) return;
     _taskPhases[session.deviceId] = {
-      for (final e in sessions.list) e.sessionId: e.phase,
+      for (final e in entries) e.sessionId: e.phase,
     };
   }
 
   void _onSessionChanged(NotifiableSession session) {
     if (_disposed) return;
-    final sessions = session.sessions;
-    if (sessions == null) return;
+    // NOTIFY_TASK: wait-for-decision tasks are now surfaced. A session whose
+    // pendingInteraction is present while the phase is waiting (or running
+    // with a pending interaction) is a "needs your decision" event. We use
+    // the phase transitions for completion and a separate latched check for
+    // the pending-interaction state below.
+    final entries = session.allSessions;
+    if (entries.isEmpty) return;
     final prev = _taskPhases.putIfAbsent(session.deviceId, () => {});
     final events = taskCompletionEvents(
       previousPhases: prev,
       sessions: [
-        for (final e in sessions.list)
+        for (final e in entries)
           (sessionId: e.sessionId, title: e.title, phase: e.phase),
       ],
     );
@@ -115,6 +125,44 @@ class NotificationHub {
           'title': e.title,
         },
       ));
+    }
+    // Waiting-for-decision: a session that is `waiting` (or still `running`
+    // while carrying a pendingInteraction) needs the user. Notify once per
+    // sessionId via the latched set, cleared when the interaction resolves.
+    for (final e in entries) {
+      if (e.phase != 'waiting' && e.pendingInteraction == null) continue;
+      final key = '${session.deviceId}:${e.sessionId}';
+      if (_waitForDecision.contains(key)) continue;
+      _waitForDecision.add(key);
+      final title = e.pendingInteraction != null
+          ? _tr('notify.task.waiting')
+          : _tr('notify.task.waiting');
+      unawaited(service.show(
+        NotifyChannel.tasks,
+        NotificationService.stableId('$key:wait'),
+        title,
+        e.title,
+        {
+          'type': 'task-waiting',
+          'deviceId': session.deviceId,
+          'sessionId': e.sessionId,
+          'title': e.title,
+        },
+      ));
+    }
+    // Clear resolved latches (no longer waiting; no pending interaction).
+    for (final key in _waitForDecision.toList()) {
+      // key = device:session — find the entry again.
+      final parts = key.split(':');
+      if (parts.length != 2) {
+        _waitForDecision.remove(key);
+        continue;
+      }
+      final id = parts[1];
+      final e = entries.where((x) => x.sessionId == id).firstOrNull;
+      if (e == null || (e.phase != 'waiting' && e.pendingInteraction == null)) {
+        _waitForDecision.remove(key);
+      }
     }
   }
 

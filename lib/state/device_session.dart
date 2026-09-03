@@ -131,6 +131,10 @@ abstract interface class NotifiableSession
   @override
   DeviceStatus get status;
   SessionsIndexState? get sessions;
+
+  /// Sessions across EVERY cached workspace (not just the active one), so
+  /// completion of tasks in other workspaces still notifies.
+  List<SessionEntry> get allSessions;
 }
 
 /// A live conversation subscription handed to the chat UI: [state] is the
@@ -358,6 +362,7 @@ class DeviceSession extends ChangeNotifier
   /// lastActivityAt descending (timeline ordering). Used by the 按时间线
   /// grouping so it shows the whole account instead of just the active
   /// workspace's own sessions.
+  @override
   List<SessionEntry> get allSessions {
     final seen = <String>{};
     final out = <SessionEntry>[];
@@ -692,6 +697,10 @@ class DeviceSession extends ChangeNotifier
       _listWatchdog?.cancel();
       _listEscalations = 0;
       _softReloadFails = 0;
+      // Prefetch the OTHER workspaces in the background so the notification
+      // pipeline (allSessions) and the timeline view cover every workspace,
+      // not just the currently active one.
+      unawaited(prefetchWorkspaceSessions());
     }
     notifyListeners();
   }
