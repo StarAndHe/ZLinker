@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../notifications/notification_service.dart';
 import '../state/device_store.dart';
 import 'theme.dart';
 import 'ui_settings.dart';
@@ -140,10 +141,127 @@ class _RemotePageState extends State<RemotePage> {
   int _deepLinkTicks = 0;
   bool _deepLinkDone = false;
 
+  /// Detects "waiting for user decision" (permission / plan approval) and
+  /// task-completion markers inside the official web remote, then raises a
+  /// local notification. Needed because the WebView holds the device's only
+  /// terminal — the native connection is suspended, so the normal
+  /// notification path is blind while the user is inside the web UI.
+  final NotificationService _monitorNotifier = NotificationService();
+  bool _pendingWaitNotified = false;
+  bool _pendingDoneNotified = false;
+
   @override
   void dispose() {
     _deepLinkTimer?.cancel();
     super.dispose();
+  }
+
+  // ------------------------------------------------ web-remote monitoring
+
+  static const kMonitorHandler = 'zlinkerWebMonitor';
+
+  String get _monitorJs => '''
+(function () {
+  if (window.__zlmon) return;
+  window.__zlmon = true;
+  window.__zlstate = window.__zlstate || {wait: false, done: false};
+  function txt(el) {
+    return ((el && (el.innerText || el.textContent)) || '').trim();
+  }
+  function report() {
+    var body = txt(document.body).slice(0, 20000);
+    var waiting = false;
+    if (/需要权限/.test(body) || /等待确认/.test(body) ||
+        /需要批准/.test(body) || /waiting for approval/i.test(body) ||
+        /need your permission/i.test(body) || /requires approval/i.test(body) ||
+        /awaiting confirmation/i.test(body)) {
+      waiting = true;
+    }
+    if (waiting && !window.__zlstate.wait) {
+      window.__zlstate.wait = true;
+      if (window.flutter_inappwebview &&
+          window.flutter_inappwebview.callHandler) {
+        window.flutter_inappwebview.callHandler('$kMonitorHandler', {
+          'type': 'waiting'
+        });
+      }
+    } else if (!waiting && window.__zlstate.wait) {
+      window.__zlstate.wait = false;
+    }
+    if (!window.__zlstate.done && /已完成/.test(body) &&
+        !window.__zlstate.wait) {
+      window.__zlstate.done = true;
+      if (window.flutter_inappwebview &&
+          window.flutter_inappwebview.callHandler) {
+        window.flutter_inappwebview.callHandler('$kMonitorHandler', {
+          'type': 'done'
+        });
+      }
+    }
+  }
+  report();
+  if (window.MutationObserver) {
+    var obs = new MutationObserver(function () { report(); });
+    obs.observe(document.body || document.documentElement,
+        {childList: true, subtree: true, characterData: true});
+  }
+})()
+''';
+
+  /// Installs the JS bridge handler and the monitor script on each load.
+  void _setupMonitor() {
+    final controller = _controller;
+    if (controller == null) return;
+    controller.addJavaScriptHandler(handlerName: kMonitorHandler, callback: (args) {
+      if (args.isEmpty || args.first is! Map) return;
+      final payload = (args.first as Map).cast<String, dynamic>();
+      final type = '${payload['type'] ?? ''}';
+      _onWebEvent(type);
+    });
+    unawaited(controller.evaluateJavascript(source: _monitorJs).catchError((_) {}));
+  }
+
+  void _onWebEvent(String type) {
+    if (!mounted) return;
+    if (type == 'waiting' && !_pendingWaitNotified) {
+      _pendingWaitNotified = true;
+      unawaited(_monitorNotifier.show(
+        NotifyChannel.tasks,
+        NotificationService.stableId(
+            '${widget.device.id}:wait:${widget.targetSessionId ?? ''}'),
+        tr(context, 'remote.monitor.waiting.title'),
+        tr(context, 'remote.monitor.waiting.body'),
+        {
+          'type': 'web-waiting',
+          'deviceId': widget.device.id,
+          'sessionId': widget.targetSessionId,
+          'title': widget.targetTitle ?? widget.device.label,
+        },
+      ));
+    } else if (type == 'done' && !_pendingDoneNotified) {
+      _pendingDoneNotified = true;
+      unawaited(_monitorNotifier.show(
+        NotifyChannel.tasks,
+        NotificationService.stableId(
+            '${widget.device.id}:done:${widget.targetSessionId ?? ''}'),
+        tr(context, 'remote.monitor.done.title'),
+        tr(
+            context,
+            widget.targetTitle?.isNotEmpty == true
+                ? 'remote.monitor.done.body'
+                : 'remote.monitor.done.body'),
+        {
+          'type': 'web-done',
+          'deviceId': widget.device.id,
+          'sessionId': widget.targetSessionId,
+          'title': widget.targetTitle ?? widget.device.label,
+        },
+      ));
+    }
+    // Clear the "waiting" latch once the page stops showing the prompt.
+    if (type == 'waiting' && _pendingWaitNotified) {
+      // keep latched; a later re-wait is a new event only after done.
+    }
   }
 
   // ------------------------------------------------------------ deep-link
@@ -321,10 +439,14 @@ class _RemotePageState extends State<RemotePage> {
               supportZoom: false,
               mediaPlaybackRequiresUserGesture: false,
             ),
-            onWebViewCreated: (c) => _controller = c,
+            onWebViewCreated: (c) {
+              _controller = c;
+              _setupMonitor();
+            },
             onLoadStop: (c, url) {
               setState(() => _progress = 1);
               _startDeepLink();
+              _setupMonitor();
             },
             onProgressChanged: (c, p) =>
                 setState(() => _progress = p / 100),
