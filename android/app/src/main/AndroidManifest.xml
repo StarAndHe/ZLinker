@@ -4,6 +4,11 @@
     <!-- Android 13+ runtime notification permission (local notifications
          for task/off-peak/automation results). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Foreground keep-alive service: keeps the native connection alive so
+         backgrounded task-completion / plan-approval notifications still
+         fire. Android 14+ requires a foreground-service type. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <!-- Device URLs carry sid/hash credentials — keep them out of cloud
          backups. -->
     <application
@@ -11,6 +16,15 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false">
+        <service
+            android:name=".ZLinkerKeepAliveService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="keep the ZLinker WebSocket alive so background task and plan-approval notifications are delivered"/>
+        </service>
         <activity
             android:name=".MainActivity"
             android:exported="true"

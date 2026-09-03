@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:home_widget/home_widget.dart';
 
 import 'notifications/notification_service.dart';
@@ -29,7 +30,7 @@ class ZLinkerApp extends StatefulWidget {
   State<ZLinkerApp> createState() => _ZLinkerAppState();
 }
 
-class _ZLinkerAppState extends State<ZLinkerApp> {
+class _ZLinkerAppState extends State<ZLinkerApp> with WidgetsBindingObserver {
   final DeviceStore _store = DeviceStore();
   final ThemeController _theme = ThemeController();
   final UiSettings _ui = UiSettings();
@@ -52,9 +53,51 @@ class _ZLinkerAppState extends State<ZLinkerApp> {
   StreamSubscription? _appLinkSub;
   final _appLinks = AppLinks();
 
+  /// Android keep-alive foreground service. Started when the app goes to
+  /// the background so the native WebSocket + notification detection keep
+  /// running (Android only). Stopped when the app returns to the foreground.
+  static const _keepAliveChannel = MethodChannel('zlinker/keepalive');
+  static const _startKeepAlive = 'startKeepAlive';
+  static const _stopKeepAlive = 'stopKeepAlive';
+
+  bool _appInForeground = true;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _appInForeground = true;
+      _stopKeepAliveService();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      // Backgrounded: keep the process alive (Android only; a no-op on iOS).
+      if (_appInForeground) {
+        _appInForeground = false;
+        _startKeepAliveService();
+      }
+    }
+  }
+
+  Future<void> _startKeepAliveService() async {
+    try {
+      await _keepAliveChannel.invokeMethod(_startKeepAlive);
+    } catch (_) {
+      // Not Android (e.g. tests / iOS): ignore.
+    }
+  }
+
+  Future<void> _stopKeepAliveService() async {
+    try {
+      await _keepAliveChannel.invokeMethod(_stopKeepAlive);
+    } catch (_) {
+      // Not Android: ignore.
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _theme.load();
     _ui.load();
     _scheduled.load();
@@ -168,6 +211,8 @@ class _ZLinkerAppState extends State<ZLinkerApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stopKeepAliveService();
     _widgetClickSub?.cancel();
     _appLinkSub?.cancel();
     _notifyHub.dispose();
