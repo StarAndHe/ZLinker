@@ -137,6 +137,11 @@ class _RemotePageState extends State<RemotePage> {
   bool _hasError = false;
   String? _errorDescription;
 
+  /// True once the page finished its initial (or a full document) load; the
+  /// loading bar is then locked off — later SPA-internal progress events
+  /// (navigation to a conversation) must not re-trigger the spinner.
+  bool _loadComplete = false;
+
   Timer? _deepLinkTimer;
   int _deepLinkTicks = 0;
   bool _deepLinkDone = false;
@@ -414,7 +419,11 @@ class _RemotePageState extends State<RemotePage> {
           ],
           bottom: PreferredSize(
             preferredSize: const Size.fromHeight(2),
-            child: (_progress < 1 && !_hasError) || linking
+            // Loading bar reflects the page's real load progress only — the
+            // session deep-link (linking) must NOT keep an infinite spinner
+            // going once the page has loaded. Deep-link progress is shown as
+            // the subtitle text instead.
+            child: _progress < 1 && !_hasError
                 ? const LinearProgressIndicator(
                     minHeight: 2,
                     color: ZColors.sky500,
@@ -444,12 +453,19 @@ class _RemotePageState extends State<RemotePage> {
               _setupMonitor();
             },
             onLoadStop: (c, url) {
-              setState(() => _progress = 1);
+              setState(() {
+                _loadComplete = true;
+                _progress = 1;
+              });
               _startDeepLink();
               _setupMonitor();
             },
-            onProgressChanged: (c, p) =>
-                setState(() => _progress = p / 100),
+            onProgressChanged: (c, p) {
+              // Ignore post-load (SPA navigation) progress re-reports so the
+              // spinner cannot restart after the page has loaded.
+              if (_loadComplete) return;
+              setState(() => _progress = p / 100);
+            },
             onReceivedError: (c, request, error) {
               if (request.isForMainFrame ?? true) {
                 setState(() {
@@ -490,6 +506,7 @@ class _RemotePageState extends State<RemotePage> {
                       setState(() {
                         _hasError = false;
                         _progress = 0;
+                        _loadComplete = false;
                       });
                       _controller?.reload();
                     },
